@@ -1,0 +1,25 @@
+{
+  "name": "zhiyin-server",
+  "private": true,
+  "version": "0.0.1",
+  "description": "知音漫卷 服务端（Fastify + SQLite）",
+  "type": "module",
+  "scripts": {
+    "server": "tsx watch src/index.ts",
+    "start": "tsx src/index.ts",
+    "seed": "tsx sql/seed.ts",
+    "typecheck": "tsc --noEmit",
+    "db:reset": "node -e \"require('node:fs').rmSync('data',{recursive:true,force:true})\""
+  },
+  "dependencies": {
+    "@fastify/cors": "^9.0.1",
+    "better-sqlite3": "^13.0.3",
+    "fastify": "^4.29.1"
+  },
+  "devDependencies": {
+    "@types/better-sqlite3": "^7.6.13",
+    "@types/node": "^22.20.5",
+    "tsx": "^4.23.15",
+    "typescript": "^5.9.3"
+  }
+}
