@@ -145,3 +145,25 @@ CREATE TABLE IF NOT EXISTS T_Token (
 );
 CREATE INDEX IF NOT EXISTS ix_token_user
   ON T_Token(user_id);
+
+-- (10) 幂等键表 --------------------------------------------------------------
+-- 契约 §1：批量同步与二进制上传支持 `Idempotency-Key` 请求头，服务端在 24 小时内
+-- 对相同键返回首次结果。R5 把这张表省了，改用进程内存的 Map 存，重启即失效（A2 补）。
+--
+-- 主键取 (user_id, idem_key) 复合而不是 idem_key 单列：键由客户端生成，
+-- 两个读者各生成一个相同 UUID 的概率虽小，但一旦撞上，A 的重放响应会被
+-- 当成 B 的结果返回 —— 那是跨用户的数据泄漏，不可接受。
+--
+-- scope 列区分接口（sync / bookmark / progress）。A3 要把幂等套到单项接口上，
+-- 有了它一张表就够用；本期只写 'sync'。
+CREATE TABLE IF NOT EXISTS T_Idempotency (
+  user_id       TEXT NOT NULL REFERENCES T_User(user_id) ON DELETE CASCADE,
+  idem_key      TEXT NOT NULL,
+  scope         TEXT NOT NULL DEFAULT 'sync',
+  response_json TEXT NOT NULL,          -- 首次请求的响应体，重放时原样返回
+  created_at    TEXT NOT NULL,
+  PRIMARY KEY (user_id, idem_key)
+);
+-- 清理过期记录时按时间扫，没有这个索引就得全表扫
+CREATE INDEX IF NOT EXISTS ix_idempotency_created
+  ON T_Idempotency(created_at);

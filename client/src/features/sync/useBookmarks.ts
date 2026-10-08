@@ -22,6 +22,26 @@ function uuid(): string {
   return `bm_${Date.now().toString(36)}${Math.floor(Math.random() * 1e9).toString(36)}`
 }
 
+/** 同一个冲突的标识：同一个对象、同一个服务端版本，就是同一条 */
+function conflictKey(c: ConflictEnvelope): string {
+  return `${c.scope}:${c.key}:${c.serverVersion}`
+}
+
+/**
+ * 合并两批冲突，按 conflictKey 去重。
+ *
+ * 读回来的（服务端 T_SyncRecord）和当场撞上的（409 响应体）可能指向同一条，
+ * 不能重复显示。
+ */
+function mergeConflicts(
+  prev: ConflictEnvelope[],
+  incoming: ConflictEnvelope[],
+): ConflictEnvelope[] {
+  const seen = new Set(prev.map(conflictKey))
+  const fresh = incoming.filter((c) => !seen.has(conflictKey(c)))
+  return fresh.length ? [...prev, ...fresh] : prev
+}
+
 export interface BookmarksApi {
   items: BookmarkDto[]
   loading: boolean
@@ -61,6 +81,32 @@ export function useBookmarks(docId: string, enabled: boolean): BookmarksApi {
   }, [reload])
 
   /**
+   * A4：进入文档时把服务端的未决冲突读回来。
+   *
+   * 冲突写进了 T_SyncRecord，但 R5 的界面从没读回来过 —— 冲突只活在当次会话的内存里，
+   * 一刷新就"未决冲突等于丢了"（契约 §2.2.6 要求不得丢失）。这里补上读回这条路。
+   *
+   * 失败就静默：读不回未决冲突不该打断阅读，本机的读写错误另有提示。
+   */
+  useEffect(() => {
+    if (!enabled) return
+    let alive = true
+    void (async () => {
+      try {
+        const res = await api.listConflicts(docId)
+        if (alive && res.items.length > 0) {
+          setConflicts((prev) => mergeConflicts(prev, res.items))
+        }
+      } catch {
+        /* 静默：见上 */
+      }
+    })()
+    return () => {
+      alive = false
+    }
+  }, [docId, enabled])
+
+  /**
    * 冲突一律：记下来 + 刷新列表（服务端可能已经按 keep_both 落了库）。
    *
    * 注意顺序：`reload()` 成功时会清空 error，所以提示语必须**在 reload 之后**再设置，
@@ -70,11 +116,7 @@ export function useBookmarks(docId: string, enabled: boolean): BookmarksApi {
     async (e: ApiError) => {
       const conflict = e.details?.conflict as ConflictEnvelope | undefined
       if (conflict) {
-        setConflicts((prev) => {
-          const key = `${conflict.scope}:${conflict.key}:${conflict.serverVersion}`
-          const exists = prev.some((c) => `${c.scope}:${c.key}:${c.serverVersion}` === key)
-          return exists ? prev : [...prev, conflict]
-        })
+        setConflicts((prev) => mergeConflicts(prev, [conflict]))
       }
       await reload()
       setError(conflict?.note ?? e.message)

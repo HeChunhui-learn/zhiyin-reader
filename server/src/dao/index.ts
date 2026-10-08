@@ -112,6 +112,14 @@ export interface TokenRow {
   revoked_at: string | null
 }
 
+export interface IdempotencyRow {
+  user_id: string
+  idem_key: string
+  scope: string
+  response_json: string
+  created_at: string
+}
+
 /* -------------------------------------------------------------- 工具 */
 
 export function newId(prefix: string): string {
@@ -728,6 +736,56 @@ export class DataAccessLibrary {
         'SELECT COUNT(*) AS n FROM T_Bookmark WHERE user_id = ? AND doc_id = ? AND deleted_at IS NULL',
       )
       .get(userId, docId) as { n: number }
+    return row.n
+  }
+
+  /* ---- 幂等键（契约 §1，A2 落表；模块内聚，与同步放一起） ---- */
+
+  getIdempotency(userId: string, scope: string, key: string): IdempotencyRow | undefined {
+    return getDb()
+      .prepare(
+        'SELECT * FROM T_Idempotency WHERE user_id = ? AND scope = ? AND idem_key = ?',
+      )
+      .get(userId, scope, key) as IdempotencyRow | undefined
+  }
+
+  /**
+   * 记下首次请求的结果。
+   *
+   * 用 INSERT OR REPLACE 而不是 INSERT：同一键若并发打进来，后到的那次是
+   * 重复提交，覆盖成它自己的结果也无害（内容必然相同或本就该以先到者为准，
+   * 而 better-sqlite3 是同步 API，单个进程内不会真的并发），
+   * 但用 REPLACE 可以避免键冲突时抛异常打断请求。
+   */
+  putIdempotency(row: IdempotencyRow): void {
+    getDb()
+      .prepare(
+        `INSERT OR REPLACE INTO T_Idempotency
+           (user_id, idem_key, scope, response_json, created_at)
+         VALUES (?, ?, ?, ?, ?)`,
+      )
+      .run(row.user_id, row.idem_key, row.scope, row.response_json, row.created_at)
+  }
+
+  /** 删掉单条（读取时发现已过期，顺手清掉） */
+  deleteIdempotency(userId: string, scope: string, key: string): void {
+    getDb()
+      .prepare('DELETE FROM T_Idempotency WHERE user_id = ? AND scope = ? AND idem_key = ?')
+      .run(userId, scope, key)
+  }
+
+  /** 删除超过 TTL 的记录，返回删掉的条数（契约 §1 的"过期的定期清理"） */
+  deleteIdempotencyBefore(cutoff: string): number {
+    return getDb()
+      .prepare('DELETE FROM T_Idempotency WHERE created_at < ?')
+      .run(cutoff).changes
+  }
+
+  /** 表里现有多少条幂等键（健康检查与调试用） */
+  countIdempotency(): number {
+    const row = getDb()
+      .prepare('SELECT COUNT(*) AS n FROM T_Idempotency')
+      .get() as { n: number }
     return row.n
   }
 }

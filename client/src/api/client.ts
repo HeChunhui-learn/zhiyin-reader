@@ -584,4 +584,15 @@ export const api = {
     choice: 'local' | 'remote' | 'both'
     relatedId?: string
   }) => request<ResolveResult>('/sync/resolve', { method: 'POST', body: JSON.stringify(body) }),
+
+  /**
+   * A4 新增：拉取未决冲突。
+   *
+   * 服务端把冲突写进了 T_SyncRecord（契约 §2.2.6 要求未决冲突不得丢失），
+   * 这里把它们读回来，刷新页面后冲突才不会被丢掉。
+   */
+  listConflicts: (docId?: string) =>
+    request<{ serverTime: string; items: ConflictEnvelope[] }>(
+      `/sync/conflicts${docId ? `?docId=${encodeURIComponent(docId)}` : ''}`,
+    ),
 }

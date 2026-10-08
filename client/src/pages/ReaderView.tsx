@@ -84,6 +84,20 @@ export default function ReaderView() {
   /** 书签：单项接口即时读写，冲突走 409 信封（契约 §7） */
   const bms = useBookmarks(docId, !!user)
 
+  /**
+   * A4：进页时若拉到了未决冲突（或本页当场撞上冲突），自动把对话框弹出来一次。
+   *
+   * ref 保证"每次进页面只自动弹一次"：读者点了「稍后处理」后，conflicts 仍留在
+   * state 里（服务端也还留着未决记录，下次进页还会读到），不设这个闸会反复弹。
+   * 想看时顶栏的「同步冲突」按钮随时能再打开。
+   */
+  const conflictPrompted = useRef(false)
+  useEffect(() => {
+    if (conflictPrompted.current || bms.conflicts.length === 0) return
+    conflictPrompted.current = true
+    setDialogOpen(true)
+  }, [bms.conflicts])
+
   const byPara = useMemo(() => {
     const m = new Map<number, Sentence[]>()
     for (const s of sentences) {

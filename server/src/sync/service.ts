@@ -1,5 +1,12 @@
 import { randomUUID } from 'node:crypto'
-import { dal, now, newId, type BookmarkRow, type ReadingProgressRow } from '../dao'
+import {
+  dal,
+  now,
+  newId,
+  type BookmarkRow,
+  type ReadingProgressRow,
+  type SyncRecordRow,
+} from '../dao'
 import { DEFAULT_ANCHOR, normalizeAnchor, type Anchor } from './anchor'
 import {
   bothSuffix,
@@ -16,6 +23,68 @@ import {
  * 把合并判定落到数据库。
  * 判定本身在 merge.ts（纯函数），这里只负责读写与组装响应。
  */
+
+/* ------------------------------------------------------------ 冲突落库 */
+
+/**
+ * 把冲突写进 T_SyncRecord，保证"未决冲突不丢失"（契约 §2.2.6 的可靠性要求）。
+ *
+ * 放在 service 层而不是路由层，是因为**三条写入路径**都要落库：
+ * `POST /api/sync`（批量）、`PATCH /api/bookmarks/:id`（单项，演示脚本走的正是这条）、
+ * `PUT /api/documents/:id/progress`。R5 只在批量那条上落了库，所以"两个窗口改名"
+ * 制造出来的冲突一直只活在响应体里，刷新页面就没了 —— 这正是 A4 要修的。
+ */
+export function persistConflict(
+  userId: string,
+  docId: string,
+  deviceId: string,
+  conflict: ConflictEnvelope,
+): SyncRecordRow {
+  const row: SyncRecordRow = {
+    record_id: newId('sr'),
+    user_id: userId,
+    doc_id: docId,
+    device_id: deviceId || null,
+    state: '冲突',
+    local_delta: JSON.stringify(conflict.local),
+    remote_changes: JSON.stringify(conflict.remote),
+    conflict_json: JSON.stringify(conflict),
+    version: 1,
+    updated_at: now(),
+  }
+  dal.insertSyncRecord(row)
+  return row
+}
+
+/**
+ * 这条冲突要不要落库。
+ *
+ * `superseded`（进度冲突）**不落**：服务端已按"不回退保护"当场裁决完毕，
+ * 契约 §8.5 的语义就是"以较新者为准"，读者无事可做。
+ * 把它也写成"冲突"记录，会让每次换设备阅读都攒下一条永远没人裁决、
+ * 于是每次打开阅读页都要重弹一遍的幽灵冲突。
+ *
+ * 书签的 `keep_both` 则要落：服务端只是"两份都留着"，到底留哪一份得读者点，
+ * 在读者点之前它就是未决的（见 ConflictDialog 的三选一说明）。
+ */
+function needsReaderChoice(conflict: ConflictEnvelope): boolean {
+  return conflict.resolution !== 'superseded'
+}
+
+/**
+ * T_SyncRecord 里的一行 → 冲突信封（A4 的读回路径）。
+ *
+ * 行里存的就是当初整份信封的 JSON，直接还原；解析不出来说明这行是坏的，
+ * 返回 null 让调用方跳过，别把整个接口带崩。
+ */
+export function syncRecordToConflict(row: SyncRecordRow): ConflictEnvelope | null {
+  if (!row.conflict_json) return null
+  try {
+    return JSON.parse(row.conflict_json) as ConflictEnvelope
+  } catch {
+    return null
+  }
+}
 
 /* ------------------------------------------------------------ 序列化 */
 
@@ -156,6 +225,10 @@ export function applyProgress(
       updated_at: payload.updatedAt,
       server_received_at: receivedAt,
     })
+    // 注意：进度冲突**不落 T_SyncRecord**。decideProgress 只会产出
+    // resolution = 'superseded' 的信封，那是服务端当场就裁决完的（"不回退保护"），
+    // 读者无事可做；写成"冲突"记录只会让每次换设备阅读都攒一条永远没人处理的
+    // 幽灵冲突，每次打开阅读页都要重弹一遍。需要落库的是书签冲突，见 applyBookmark。
     return {
       progressId: existing.progress_id,
       version: existing.version + 1,
@@ -223,6 +296,17 @@ export function applyBookmark(
 
   const occurredAt = payload.updatedAt || now()
 
+  /**
+   * 只有 keep_modified / keep_both 两个分支会带冲突（insert / update / idempotent
+   * 都是版本对得上或首次落库，无冲突可言），所以只在这两处出口调它。
+   */
+  const done = (r: BookmarkApplyResult): BookmarkApplyResult => {
+    if (r.conflict && needsReaderChoice(r.conflict)) {
+      persistConflict(userId, payload.docId, deviceId, r.conflict)
+    }
+    return r
+  }
+
   switch (decision.action.kind) {
     case 'idempotent':
       return { applied: false, version: remote?.version ?? 0, row: remote ?? undefined }
@@ -266,14 +350,14 @@ export function applyBookmark(
         deleted_at: null,
       })
       const after = dal.getBookmarkById(payload.bookmarkId)!
-      return {
+      return done({
         applied: true,
         version: after.version,
         row: after,
         conflict: decision.conflict
           ? { ...decision.conflict, resolved: bookmarkToDto(after) }
           : undefined,
-      }
+      })
     }
 
     case 'keep_both': {
@@ -292,7 +376,7 @@ export function applyBookmark(
         deleted_at: null,
       }
       dal.insertBookmark(copy)
-      return {
+      return done({
         applied: true,
         version: copy.version,
         row: copy,
@@ -300,7 +384,7 @@ export function applyBookmark(
         conflict: decision.conflict
           ? { ...decision.conflict, resolved: bookmarkToDto(copy) }
           : undefined,
-      }
+      })
     }
 
     default:
