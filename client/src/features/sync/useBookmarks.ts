@@ -148,6 +148,13 @@ export function useBookmarks(docId: string, enabled: boolean): BookmarksApi {
       const byId = new Map(items.map((i) => [i.bookmarkId, i]))
       const next = orderedIds.map((id) => byId.get(id)).filter((i): i is BookmarkDto => !!i)
       if (next.length !== items.length) return
+      // 跨页拖动会写坏顺序：items 只是当前一页，页内下标（0..19）与全文档的 sort_order
+      // 不是一回事，第二页的下标会与第一页已有的序号撞车，服务端又不重排其余行，
+      // 拖完顺序会跨页散架。一页装得下才允许拖动（Task 5/6 的拖动入口同步禁用）。
+      if (total > pageSize) {
+        setError('书签超过一页，暂不支持拖动排序')
+        return
+      }
 
       setItems(next.map((it, i) => ({ ...it, sortOrder: i })))
       try {
@@ -168,7 +175,7 @@ export function useBookmarks(docId: string, enabled: boolean): BookmarksApi {
         setError(msg)
       }
     },
-    [items, docId, reload],
+    [items, docId, reload, total, pageSize],
   )
 
   const rename = useCallback(
