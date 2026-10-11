@@ -6,7 +6,7 @@ import { splitSentences, type Sentence } from '../features/readalong/splitSenten
 import { useReadAlong } from '../features/readalong/useReadAlong'
 import { useProgress } from '../features/sync/useProgress'
 import { useBookmarks } from '../features/sync/useBookmarks'
-import { anchorAt, clampToParagraphs } from '../features/sync/anchor'
+import { anchorAt, clampToParagraphs, type Anchor } from '../features/sync/anchor'
 import {
   buildGeometry,
   computeWindow,
@@ -235,8 +235,52 @@ export default function ReaderView() {
 
   const tocItems = paragraphs.filter((p) => p.type === 'h1' || p.type === 'h2')
 
-  /** 书签默认名（B4 的「章节标题 · 首句片段」）。Task 9 给出真正的命名规则 */
-  const defaultNameFor = (_paraIndex: number) => ''
+  /**
+   * B4：书签默认名 =「章节标题 + 首句片段」（.context/08-书签补充.md §2.3 的要求）。
+   *
+   * 章节标题不需要动解析层——ReaderView 已经拿到带 type: 'h1' | 'h2' 的 paragraphs，
+   * 取锚点段落**之前最近的一个标题段**即可；之前没有就退回文档里第一个标题段，
+   * 再没有就用书名。
+   */
+  const chapterTitleFor = useCallback(
+    (paraIndex: number): string => {
+      for (let i = Math.min(paraIndex, paragraphs.length - 1); i >= 0; i--) {
+        const p = paragraphs[i]
+        if (p && (p.type === 'h1' || p.type === 'h2')) return p.text
+      }
+      const first = paragraphs.find((p) => p.type === 'h1' || p.type === 'h2')
+      return first?.text ?? book?.title ?? ''
+    },
+    [paragraphs, book],
+  )
+
+  /** 首句片段：取锚点段落切分后的第一句，超过 20 字截断 */
+  const firstSentenceOf = useCallback(
+    (paraIndex: number): string => {
+      const s = (byPara.get(paraIndex) ?? [])[0]?.text ?? paragraphs[paraIndex]?.text ?? ''
+      return s.length > 20 ? `${s.slice(0, 20)}…` : s
+    },
+    [byPara, paragraphs],
+  )
+
+  const defaultNameFor = useCallback(
+    (paraIndex: number): string => {
+      const parts = [chapterTitleFor(paraIndex), firstSentenceOf(paraIndex)].filter(Boolean)
+      return parts.join(' · ')
+    },
+    [chapterTitleFor, firstSentenceOf],
+  )
+
+  /**
+   * useBookmarks 的实现早就收第三个参数 chapterTitle 了，但导出的 `BookmarksApi`
+   * 接口漏声明了它；useBookmarks.ts 不在本任务的可改范围内，这里就地放宽一次签名，
+   * 好把「所属章节」一并提交落库（纯类型断言，运行时行为不变）。
+   */
+  const bmsAdd = bms.add as (
+    anchor: Anchor,
+    name: string,
+    chapterTitle?: string | null,
+  ) => Promise<void>
 
   if (!ready || !user || loading) {
     return <div className="reader-page"><div className="shelf-empty">正在加载正文…</div></div>
@@ -309,7 +353,14 @@ export default function ReaderView() {
             onSortChange={bms.setSort}
             onPageChange={bms.setPage}
             defaultAddName={defaultNameFor(currentParaRef.current)}
-            onAdd={(name) => void bms.add(anchorAt(currentParaRef.current, ra.cursor), name)}
+            onAdd={(name) => {
+              const idx = currentParaRef.current
+              void bmsAdd(
+                anchorAt(idx, ra.cursor),
+                name || defaultNameFor(idx),
+                chapterTitleFor(idx),
+              )
+            }}
             onRename={(id, name) => void bms.rename(id, name)}
             onRemove={(id) => void bms.remove(id)}
             onReorder={(ids) => void bms.reorder(ids)}
