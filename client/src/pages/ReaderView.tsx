@@ -249,7 +249,7 @@ export default function ReaderView() {
         <div className="reader-title" title={book.title}>{book.title}</div>
         <button className="btn btn-ghost" onClick={() => setTocOpen((v) => !v)}>目录</button>
         <button className="btn btn-ghost" onClick={() => setMarksOpen((v) => !v)}>
-          书签{bms.items.length > 0 ? `（${bms.items.length}）` : ''}
+          书签{bms.total > 0 ? `（${bms.total}）` : ''}
         </button>
         <button
           className="btn btn-ghost btn-conflict"
