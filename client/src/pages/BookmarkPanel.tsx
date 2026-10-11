@@ -1,4 +1,4 @@
-import { useRef, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import type { BookmarkDto } from '../api/client'
 
 /**
@@ -55,22 +55,28 @@ export default function BookmarkPanel({
    *  槽位边界会跟着换位一起移动，行高不等时仍旧会来回翻 —— 这正是本次要修的病。 */
   const geomRef = useRef<{
     top: number
-    order0: string[]
     heightById: Map<string, number>
+    order0: string[]
   } | null>(null)
+  /** 拖动期间的权威顺序。放 ref 而不是只靠 state —— window 监听器只挂一次，
+   *  依赖每次渲染重建的闭包会读到过期的 previewIds。 */
+  const orderRef = useRef<string[] | null>(null)
+
+  /** dragActive（不是 draggingId）：指针一按下就挂监听，阈值判定也在监听器里做 */
+  const [dragActive, setDragActive] = useState(false)
 
   const byId = new Map(items.map((i) => [i.bookmarkId, i]))
   const shown = previewIds
     ? previewIds.map((id) => byId.get(id)).filter((i): i is BookmarkDto => !!i)
     : items
 
-  /** 按指针纵向位置算出目标下标，实时重排预览 */
-  function applyDragMove(clientY: number) {
+  /** 按指针纵向位置算出目标下标，实时重排预览。全部读 ref，不读任何 state */
+  function applyDragMoveAt(clientY: number) {
     const d = dragRef.current
     const g = geomRef.current
-    if (!d || !g || g.order0.length === 0) return
+    const cur = orderRef.current
+    if (!d || !g || !cur || g.order0.length === 0) return
 
-    const cur = previewIds ?? g.order0
     const from = cur.indexOf(d.bookmarkId)
     if (from < 0) return
 
@@ -91,63 +97,90 @@ export default function BookmarkPanel({
     const next = cur.slice()
     next.splice(from, 1)
     next.splice(target, 0, d.bookmarkId)
+    orderRef.current = next
     setPreviewIds(next)
   }
 
-  function onPointerDown(e: React.PointerEvent<HTMLButtonElement>, bookmarkId: string) {
+  /** 指针按下即进入拖动待命态，并把几何与顺序一次性快照下来 */
+  function beginDrag(e: React.PointerEvent<HTMLButtonElement>, bookmarkId: string) {
     // 只在书签多于 1 条时允许拖动
     if (items.length < 2) return
+    if (dragRef.current) return // 多指：已有拖动在进行，忽略第二根手指
+    const list = listRef.current
+    if (!list) return
+
     e.currentTarget.setPointerCapture(e.pointerId)
+
+    // 行高按 id 记，并连同当时的顺序一起固定下来（累加只沿 order0，见 applyDragMoveAt）
+    const nodes = Array.from(list.querySelectorAll<HTMLElement>('[data-bm-id]'))
+    const order0 = nodes.map((n) => n.dataset.bmId ?? '')
     dragRef.current = { pointerId: e.pointerId, bookmarkId, startY: e.clientY, moved: false }
+    geomRef.current = {
+      top: list.getBoundingClientRect().top,
+      heightById: new Map(
+        nodes.map((n) => [n.dataset.bmId ?? '', n.getBoundingClientRect().height]),
+      ),
+      order0,
+    }
+    orderRef.current = order0
+    setDragActive(true)
   }
 
-  function onPointerMove(e: React.PointerEvent<HTMLButtonElement>) {
+  /** 结束拖动。commit 为假时只清状态（Escape / pointercancel） */
+  function endDrag(commit: boolean) {
     const d = dragRef.current
-    if (!d || d.pointerId !== e.pointerId) return
-    if (!d.moved) {
-      if (Math.abs(e.clientY - d.startY) < DRAG_THRESHOLD) return
-      const list = listRef.current
-      if (!list) return
-      // 拖动真正开始时快照一次几何：行高按 id 记，并连同当时的顺序一起固定下来
-      const nodes = Array.from(list.querySelectorAll<HTMLElement>('[data-bm-id]'))
-      geomRef.current = {
-        top: list.getBoundingClientRect().top,
-        order0: nodes.map((n) => n.dataset.bmId ?? ''),
-        heightById: new Map(
-          nodes.map((n) => [n.dataset.bmId ?? '', n.getBoundingClientRect().height]),
-        ),
+    const order = orderRef.current
+    dragRef.current = null
+    geomRef.current = null
+    orderRef.current = null
+    setDragActive(false)
+    setDraggingId('')
+    setPreviewIds(null)
+    if (commit && d?.moved && order) onReorder(order)
+  }
+
+  /**
+   * 拖动期间的 move / up / cancel / Escape 一律挂 window。
+   *
+   * 不能只靠手柄上的 onPointerUp：React 换位会挪动 DOM 节点，浏览器随之隐式释放
+   * 指针捕获，之后 pointerup 落到光标下方的任意元素上。手柄只有 18×18px、行高 36px，
+   * 在行体上松手就静默不提交 —— 界面看着排好了，刷新即回滚（评审用三种手势隔离验证过）。
+   */
+  useEffect(() => {
+    if (!dragActive) return
+
+    const onMove = (e: PointerEvent) => {
+      const d = dragRef.current
+      if (!d || d.pointerId !== e.pointerId) return
+      if (!d.moved) {
+        if (Math.abs(e.clientY - d.startY) < DRAG_THRESHOLD) return
+        d.moved = true
+        setDraggingId(d.bookmarkId)
+        setPreviewIds(orderRef.current)
       }
-      d.moved = true
-      setDraggingId(d.bookmarkId)
-      setPreviewIds(items.map((i) => i.bookmarkId))
+      applyDragMoveAt(e.clientY)
     }
-    applyDragMove(e.clientY)
-  }
-
-  function onPointerUp(e: React.PointerEvent<HTMLButtonElement>) {
-    const d = dragRef.current
-    dragRef.current = null
-    geomRef.current = null
-    if (!d || d.pointerId !== e.pointerId) return
-    e.currentTarget.releasePointerCapture?.(e.pointerId)
-    setDraggingId('')
-
-    if (!d.moved) {
-      setPreviewIds(null)
-      return
+    const onUp = (e: PointerEvent) => {
+      const d = dragRef.current
+      if (!d || d.pointerId !== e.pointerId) return
+      endDrag(true)
     }
-    const ids = previewIds ?? items.map((i) => i.bookmarkId)
-    setPreviewIds(null)
-    onReorder(ids)
-  }
+    const onCancel = () => endDrag(false)
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') endDrag(false)
+    }
 
-  /** 取消拖动（Escape 或指针被系统抢走） */
-  function cancelDrag() {
-    dragRef.current = null
-    geomRef.current = null
-    setDraggingId('')
-    setPreviewIds(null)
-  }
+    window.addEventListener('pointermove', onMove)
+    window.addEventListener('pointerup', onUp)
+    window.addEventListener('pointercancel', onCancel)
+    window.addEventListener('keydown', onKey)
+    return () => {
+      window.removeEventListener('pointermove', onMove)
+      window.removeEventListener('pointerup', onUp)
+      window.removeEventListener('pointercancel', onCancel)
+      window.removeEventListener('keydown', onKey)
+    }
+  }, [dragActive, onReorder])
 
   /** 无鼠标也能排序：上移 / 下移 */
   function moveBy(bookmarkId: string, delta: number) {
@@ -160,7 +193,7 @@ export default function BookmarkPanel({
   }
 
   return (
-    <aside className="toc-panel" onKeyDown={(e) => e.key === 'Escape' && cancelDrag()}>
+    <aside className="toc-panel">
       <div className="toc-head toc-head-row">
         <span>书签</span>
         <button
@@ -219,10 +252,7 @@ export default function BookmarkPanel({
               className="mark-grip"
               title="按住拖动排序"
               aria-label="拖动排序"
-              onPointerDown={(e) => onPointerDown(e, b.bookmarkId)}
-              onPointerMove={onPointerMove}
-              onPointerUp={onPointerUp}
-              onPointerCancel={cancelDrag}
+              onPointerDown={(e) => beginDrag(e, b.bookmarkId)}
             >
               ⠿
             </button>
