@@ -55,13 +55,24 @@ export function useReadAlong(docId: string, sentences: Sentence[]): ReadAlongApi
   const [engines, setEngines] = useState<EnginesLoadResult | null>(null)
   const [engineId, setEngineId] = useState('')
   const [voice, setVoice] = useState('')
-  const [rate, setRate] = useState(1)
+  const [rate, setRateState] = useState(1)
   const [playing, setPlaying] = useState(false)
   const [cursor, setCursor] = useState(0)
   const [autoScroll, setAutoScroll] = useState(true)
   const [error, setError] = useState('')
   /** 每次"跳转/重播"都 +1，让播放循环从新位置重启 */
   const [runId, setRunId] = useState(0)
+
+  /**
+   * C3：语速走 ref，**不进播放循环的依赖数组**。
+   *
+   * 旧写法把 rate 放进依赖数组，于是改一次语速就 abort + stop + 从游标处
+   * 重启循环，当前句被打断从头念。现在：
+   *   · 正在播的那一句已按旧语速合成完毕，让它念完（不打断）
+   *   · 循环里每次 speak() / preload() 都现读 rateRef.current，
+   *     所以新语速从**下一句**开始生效
+   */
+  const rateRef = useRef(rate)
 
   const cursorRef = useRef(0)
   useEffect(() => {
@@ -118,7 +129,11 @@ export function useReadAlong(docId: string, sentences: Sentence[]): ReadAlongApi
         if (ac.signal.aborted) return
 
         try {
-          await engine.speak(sentences[i].text, { voice, rate }, ac.signal)
+          await engine.speak(
+            sentences[i].text,
+            { voice, rate: rateRef.current },
+            ac.signal,
+          )
         } catch (e) {
           if (ac.signal.aborted || isAbort(e)) return
           setError(e instanceof Error ? e.message : '朗读失败，请重试。')
@@ -139,7 +154,7 @@ export function useReadAlong(docId: string, sentences: Sentence[]): ReadAlongApi
         if (i + 1 < sentences.length) {
           engine.preload(
             sentences.slice(i + 1, i + 4).map((s) => s.text),
-            { voice, rate },
+            { voice, rate: rateRef.current },
           )
         }
       }
@@ -151,11 +166,23 @@ export function useReadAlong(docId: string, sentences: Sentence[]): ReadAlongApi
       ac.abort()
       engine.stop()
     }
-  }, [playing, runId, engine, voice, rate, sentences])
+    // 注意：rate 刻意不在依赖里（C3）—— 改语速不重启循环，从下一句生效。
+    // 改引擎/音色仍然会重启，那是有意的：换了声音就该立刻听到新声音。
+  }, [playing, runId, engine, voice, sentences])
 
   /* ---- 对外操作 ---- */
 
   const pause = useCallback(() => setPlaying(false), [])
+
+  /**
+   * 改语速（C3）：只写 ref + 刷新界面状态，**不触碰播放循环**。
+   * 先写 ref 是关键 —— 正在跑的那次循环下一次调 speak() 就能读到新值，
+   * 而当前这句不受影响。
+   */
+  const setRate = useCallback((r: number) => {
+    rateRef.current = r
+    setRateState(r)
+  }, [])
 
   const seek = useCallback(
     (index: number) => {
