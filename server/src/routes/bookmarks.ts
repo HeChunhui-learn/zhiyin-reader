@@ -319,4 +319,45 @@ export default async function bookmarkRoutes(app: FastifyInstance) {
     const { total, rows } = dal.listBookmarksPaged(userId, q.docId, sort, order, page, pageSize)
     return { total, page, pageSize, items: rows.map(bookmarkListDto) }
   })
+
+  /**
+   * §7.6 跨文档书签总览（B2）。
+   *
+   * 分页作用于**文档组**而不是书签：组头的 bookmarkCount 要是该文档的真实书签总数，
+   * 按书签分页的话它只会是"本页里该文档的条数"，对读者是错的。
+   * total 因此是"有书签的文档数"。
+   */
+  app.get<{ Querystring: { page?: string; pageSize?: string } }>(
+    '/api/bookmarks/overview',
+    async (req) => {
+      const userId = requireUserId(req)
+      const q = req.query
+      const page = Math.max(1, Number(q.page ?? 1) || 1)
+      const pageSize = Math.min(100, Math.max(1, Number(q.pageSize ?? 20) || 20))
+
+      const { total, docs } = dal.listBookmarkedDocuments(userId, page, pageSize)
+      const rows = dal.listBookmarksByDocIds(
+        userId,
+        docs.map((d) => d.doc_id),
+      )
+
+      // 按 docs 的顺序建组（DAO 已按组内最近更新时间降序），再往组里塞书签
+      const groups = docs.map((d) => ({
+        docId: d.doc_id,
+        docTitle: d.doc_title ?? d.file_name,
+        bookmarkCount: 0,
+        items: [] as ReturnType<typeof bookmarkListDto>[],
+      }))
+      const byDoc = new Map(groups.map((g) => [g.docId, g]))
+
+      for (const row of rows) {
+        const g = byDoc.get(row.doc_id)
+        if (!g) continue
+        g.items.push(bookmarkListDto(row))
+        g.bookmarkCount++
+      }
+
+      return { total, page, pageSize, groups }
+    },
+  )
 }

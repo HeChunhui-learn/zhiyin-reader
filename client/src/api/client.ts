@@ -607,6 +607,25 @@ export const api = {
       items: { bookmarkId: string; sortOrder: number; version: number }[]
     }>('/bookmarks/reorder', { method: 'POST', body: JSON.stringify(body) }),
 
+  /** §7.6 跨文档书签总览（B2）：按文档分组 */
+  listBookmarksOverview: (opts: { page?: number; pageSize?: number } = {}) => {
+    const q = new URLSearchParams()
+    if (opts.page) q.set('page', String(opts.page))
+    if (opts.pageSize) q.set('pageSize', String(opts.pageSize))
+    const qs = q.toString()
+    return request<{
+      total: number
+      page: number
+      pageSize: number
+      groups: {
+        docId: string
+        docTitle: string
+        bookmarkCount: number
+        items: BookmarkDto[]
+      }[]
+    }>(`/bookmarks/overview${qs ? '?' + qs : ''}`)
+  },
+
   /* 批量增量同步（契约 §8） */
 
   sync: (body: SyncRequest, idempotencyKey?: string) =>
