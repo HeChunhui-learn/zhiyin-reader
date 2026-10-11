@@ -257,7 +257,12 @@ export default function ReaderView() {
   /** 首句片段：取锚点段落切分后的第一句，去掉句末标点，超过 20 字截断 */
   const firstSentenceOf = useCallback(
     (paraIndex: number): string => {
-      const raw = (byPara.get(paraIndex) ?? [])[0]?.text ?? paragraphs[paraIndex]?.text ?? ''
+      const p = paragraphs[paraIndex]
+      // 标题段本身没有句子（splitSentences 把 h1/h2 排除在外），若锚点正好落在标题段上，
+      // 兜底取 paragraphs[paraIndex].text 会拿到与章节标题一模一样的一串，
+      // 默认名会变成「卷二 · 境界说 · 卷二 · 境界说」。此时不取片段。
+      if (p && (p.type === 'h1' || p.type === 'h2')) return ''
+      const raw = (byPara.get(paraIndex) ?? [])[0]?.text ?? p?.text ?? ''
       // 去掉句末标点：默认名是「章节标题 · 首句片段」这种复合名，末尾再挂一个句号读着别扭，
       // 也与任务书 B4 给出的示例形式一致（任务书示例没有句号）
       const trimmed = raw.replace(/[。．.！!？?；;…]+$/, '')
