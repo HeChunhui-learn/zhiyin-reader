@@ -831,13 +831,18 @@ export class DataAccessLibrary {
     const col =
       sort === 'createdAt' ? 'created_at' : sort === 'chapter' ? 'chapter_title' : 'sort_order'
     const dir = order === 'desc' ? 'DESC' : 'ASC'
-    const nullsLast = sort === 'chapter' ? ', (chapter_title IS NULL) ASC' : ''
+    // chapter 排序时把 chapter_title 为空的旧数据固定排最后，不随 order 翻转。
+    // 判定项必须放在排序键**之前**：写成
+    //   `ORDER BY chapter_title ASC, (chapter_title IS NULL) ASC`
+    // 是不生效的 —— 所有 NULL 行在排序键上并列、在判定项上也并列，
+    // 而 SQLite 把 NULL 当最小值，于是 ASC 时 NULL 反而排最前（评审实测）。
+    const nullsFirst = sort === 'chapter' ? '(chapter_title IS NULL) ASC, ' : ''
 
     const rows = getDb()
       .prepare(
         `SELECT * FROM T_Bookmark
           WHERE user_id = ? AND doc_id = ? AND deleted_at IS NULL
-          ORDER BY ${col} ${dir}${nullsLast}, bookmark_id ASC
+          ORDER BY ${nullsFirst}${col} ${dir}, bookmark_id ASC
           LIMIT ? OFFSET ?`,
       )
       .all(userId, docId, pageSize, (page - 1) * pageSize) as BookmarkRow[]
