@@ -1001,6 +1001,13 @@ git commit -m "feat(B1): 前端书签 API 与乐观更新
 
 ### Task 5: 书签面板 —— 手写 pointer 拖动排序
 
+> **⚠ 本节的 `applyDragMove` 代码已被裁决 R14 修正，以仓库里的实现为准。**
+> 下文命中的"读实时 `getBoundingClientRect` 算目标下标"写法是错的：每次换位都会改变布局，
+> 相邻行高不等时命中判定会来回翻，顺序抖动、落点由最后一次渲染决定。而 B4 之后默认名会变成长串
+> （如「人间词话 · 卷一 · 词以境界为最上」），`.mark-name` 是 `flex:1` 会换行，行高必然不等，
+> 该缺陷会成为常态。**正确做法**：拖动开始时把各条行高与列表顶端快照进 `geomRef`，
+> 之后用快照累加算出目标槽位，全程不读实时矩形；`cancelDrag` 与 `onPointerUp` 各路径都要清掉快照。
+
 **Files:**
 - Create: `client/src/pages/BookmarkPanel.tsx`
 - Modify: `client/src/pages/ReaderView.tsx`
