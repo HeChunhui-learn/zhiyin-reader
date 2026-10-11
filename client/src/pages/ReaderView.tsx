@@ -26,6 +26,7 @@ import LazyImage from '../features/render/LazyImage'
 import { useSession } from '../state/session'
 import PlaybackBar from './PlaybackBar'
 import ConflictDialog from './ConflictDialog'
+import BookmarkPanel from './BookmarkPanel'
 
 export default function ReaderView() {
   const { docId = '' } = useParams()
@@ -40,8 +41,6 @@ export default function ReaderView() {
 
   const [tocOpen, setTocOpen] = useState(false)
   const [marksOpen, setMarksOpen] = useState(false)
-  const [renamingId, setRenamingId] = useState('')
-  const [renamingText, setRenamingText] = useState('')
   const [dialogOpen, setDialogOpen] = useState(false)
   const [toast, setToast] = useState('')
 
@@ -222,6 +221,9 @@ export default function ReaderView() {
 
   const tocItems = paragraphs.filter((p) => p.type === 'h1' || p.type === 'h2')
 
+  /** 书签默认名（B4 的「章节标题 · 首句片段」）。Task 9 给出真正的命名规则 */
+  const defaultNameFor = (_paraIndex: number) => ''
+
   if (!ready || !user || loading) {
     return <div className="reader-page"><div className="shelf-empty">正在加载正文…</div></div>
   }
@@ -284,74 +286,18 @@ export default function ReaderView() {
         )}
 
         {marksOpen && (
-          <aside className="toc-panel">
-            <div className="toc-head toc-head-row">
-              <span>书签</span>
-              <button
-                className="btn btn-ghost btn-sm"
-                onClick={() => {
-                  const idx = currentParaRef.current
-                  void bms.add(anchorAt(idx, ra.cursor), `第 ${idx + 1} 段`)
-                }}
-              >
-                加当前位置
-              </button>
-            </div>
-            {bms.items.length === 0 && (
-              <p className="muted marks-empty">
-                还没有书签。读到某处点「加当前位置」。
-              </p>
-            )}
-            {bms.items.map((b) => (
-              <div className="mark-item" key={b.bookmarkId}>
-                {renamingId === b.bookmarkId ? (
-                  <input
-                    className="input mark-rename"
-                    autoFocus
-                    value={renamingText}
-                    onChange={(e) => setRenamingText(e.target.value)}
-                    onBlur={() => setRenamingId('')}
-                    onKeyDown={(e) => {
-                      if (e.key === 'Enter') {
-                        void bms.rename(b.bookmarkId, renamingText)
-                        setRenamingId('')
-                      }
-                      if (e.key === 'Escape') setRenamingId('')
-                    }}
-                  />
-                ) : (
-                  <button
-                    className="mark-name"
-                    title="跳到这个书签"
-                    onClick={() => {
-                      gotoParagraph(b.anchor.paragraphIndex)
-                      ra.stopAutoScroll()
-                    }}
-                  >
-                    {b.name || '（无名）'}
-                    <span className="mark-pos">第 {b.anchor.paragraphIndex + 1} 段</span>
-                  </button>
-                )}
-                <button
-                  className="mark-act"
-                  title="重命名"
-                  onClick={() => {
-                    setRenamingId(b.bookmarkId)
-                    setRenamingText(b.name ?? '')
-                  }}
-                >
-                  ✎
-                </button>
-                <button
-                  className="mark-act"
-                  title="删除"
-                  onClick={() => void bms.remove(b.bookmarkId)}
-                >
-                  ✕
-                </button>
-              </div>
-            ))}
-          </aside>
+          <BookmarkPanel
+            items={bms.items}
+            defaultAddName={defaultNameFor(currentParaRef.current)}
+            onAdd={(name) => void bms.add(anchorAt(currentParaRef.current, ra.cursor), name)}
+            onRename={(id, name) => void bms.rename(id, name)}
+            onRemove={(id) => void bms.remove(id)}
+            onReorder={(ids) => void bms.reorder(ids)}
+            onJump={(paraIndex) => {
+              gotoParagraph(paraIndex)
+              ra.stopAutoScroll()
+            }}
+          />
         )}
 
         <div className="reader-scroll" ref={rootRef}>

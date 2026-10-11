@@ -1110,3 +1110,20 @@ button {
   font-size: 13px;
   z-index: 80;
 }
+
+/* ---- B1：书签面板的拖动排序 ---- */
+.marks-add { display: flex; gap: 6px; padding: 6px 10px; }
+.marks-list { display: flex; flex-direction: column; }
+.mark-item.dragging { opacity: 0.85; background: rgba(59, 110, 165, 0.12); }
+.mark-grip {
+  cursor: grab;
+  touch-action: none;          /* 关键：不设的话触控会被浏览器当成滚动抢走指针 */
+  user-select: none;
+  border: none;
+  background: transparent;
+  color: inherit;
+  opacity: 0.5;
+  padding: 0 4px;
+}
+.mark-grip:active { cursor: grabbing; opacity: 1; }
+.mark-act:disabled { opacity: 0.3; cursor: default; }
