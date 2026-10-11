@@ -47,6 +47,17 @@ export default function BookmarkPanel({
     moved: boolean
   } | null>(null)
   const listRef = useRef<HTMLDivElement>(null)
+  /** 拖动开始时快照的行高与列表顶端。
+   *  不能读实时矩形 —— 每次换位都会改变布局，相邻行高不等时命中判定会来回翻，
+   *  顺序抖动、落点由最后一次渲染决定。快照法用固定行高累加，结果只取决于指针位置。
+   *
+   *  order0 是关键：累加必须沿拖动开始时那份**固定**顺序做。若沿实时预览顺序累加，
+   *  槽位边界会跟着换位一起移动，行高不等时仍旧会来回翻 —— 这正是本次要修的病。 */
+  const geomRef = useRef<{
+    top: number
+    order0: string[]
+    heightById: Map<string, number>
+  } | null>(null)
 
   const byId = new Map(items.map((i) => [i.bookmarkId, i]))
   const shown = previewIds
@@ -56,31 +67,28 @@ export default function BookmarkPanel({
   /** 按指针纵向位置算出目标下标，实时重排预览 */
   function applyDragMove(clientY: number) {
     const d = dragRef.current
-    const list = listRef.current
-    if (!d || !list) return
+    const g = geomRef.current
+    if (!d || !g || g.order0.length === 0) return
 
-    const nodes = Array.from(list.querySelectorAll<HTMLElement>('[data-bm-id]'))
-    const order = nodes.map((n) => n.dataset.bmId ?? '')
-    const from = order.indexOf(d.bookmarkId)
+    const cur = previewIds ?? g.order0
+    const from = cur.indexOf(d.bookmarkId)
     if (from < 0) return
 
-    // 指针落在哪一条上，就插到那一条的位置
-    let target = -1
-    for (let i = 0; i < nodes.length; i++) {
-      const r = nodes[i].getBoundingClientRect()
-      if (clientY >= r.top && clientY <= r.bottom) {
+    // 用快照行高沿固定顺序累加，找指针落在第几个槽位
+    let top = g.top
+    let target = g.order0.length - 1
+    for (let i = 0; i < g.order0.length; i++) {
+      const h = g.heightById.get(g.order0[i]) ?? 0
+      if (clientY < top + h) {
         target = i
         break
       }
+      top += h
     }
-    // 拖到列表末尾之下时归到最后一位
-    if (target < 0 && nodes.length > 0) {
-      const last = nodes[nodes.length - 1].getBoundingClientRect()
-      if (clientY > last.bottom) target = nodes.length - 1
-    }
+
     if (target < 0 || target === from) return
 
-    const next = order.slice()
+    const next = cur.slice()
     next.splice(from, 1)
     next.splice(target, 0, d.bookmarkId)
     setPreviewIds(next)
@@ -98,6 +106,17 @@ export default function BookmarkPanel({
     if (!d || d.pointerId !== e.pointerId) return
     if (!d.moved) {
       if (Math.abs(e.clientY - d.startY) < DRAG_THRESHOLD) return
+      const list = listRef.current
+      if (!list) return
+      // 拖动真正开始时快照一次几何：行高按 id 记，并连同当时的顺序一起固定下来
+      const nodes = Array.from(list.querySelectorAll<HTMLElement>('[data-bm-id]'))
+      geomRef.current = {
+        top: list.getBoundingClientRect().top,
+        order0: nodes.map((n) => n.dataset.bmId ?? ''),
+        heightById: new Map(
+          nodes.map((n) => [n.dataset.bmId ?? '', n.getBoundingClientRect().height]),
+        ),
+      }
       d.moved = true
       setDraggingId(d.bookmarkId)
       setPreviewIds(items.map((i) => i.bookmarkId))
@@ -108,6 +127,7 @@ export default function BookmarkPanel({
   function onPointerUp(e: React.PointerEvent<HTMLButtonElement>) {
     const d = dragRef.current
     dragRef.current = null
+    geomRef.current = null
     if (!d || d.pointerId !== e.pointerId) return
     e.currentTarget.releasePointerCapture?.(e.pointerId)
     setDraggingId('')
@@ -124,6 +144,7 @@ export default function BookmarkPanel({
   /** 取消拖动（Escape 或指针被系统抢走） */
   function cancelDrag() {
     dragRef.current = null
+    geomRef.current = null
     setDraggingId('')
     setPreviewIds(null)
   }
