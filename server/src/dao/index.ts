@@ -87,6 +87,11 @@ export interface BookmarkRow {
   created_at: string
   updated_at: string
   deleted_at: string | null
+  /** ★ B1：同文档内排序位。**可选**——server/src/sync/service.ts（禁区）构造的行字面量
+   *  不带它，缺省时由 insertBookmark 兜底分配 max+1，见下方注释 */
+  sort_order?: number
+  /** ★ B4：书签所在章节标题。同样可选，理由同上 */
+  chapter_title?: string | null
 }
 
 export interface SyncRecordRow {
@@ -598,16 +603,26 @@ export class DataAccessLibrary {
       .all(...params) as BookmarkRow[]
   }
 
+  /**
+   * 新列兜底：sort_order 缺省时追加到末尾（max+1），chapter_title 缺省为 null。
+   *
+   * 为什么是兜底而不是必填：server/src/sync/service.ts 在**禁区**里，它构造 BookmarkRow
+   * 字面量时不带这两个字段。做成可选 + 此处兜底，既不改禁区文件，又让经 /api/sync
+   * 创建的书签拿到合理序号（而不是全部挤在 0）。
+   */
   insertBookmark(row: BookmarkRow): void {
+    const sortOrder = row.sort_order ?? this.nextSortOrder(row.user_id, row.doc_id)
     getDb()
       .prepare(
         `INSERT INTO T_Bookmark
-           (bookmark_id, user_id, doc_id, anchor_json, name, version, created_at, updated_at, deleted_at)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+           (bookmark_id, user_id, doc_id, anchor_json, name, version, created_at, updated_at,
+            deleted_at, sort_order, chapter_title)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       )
       .run(
         row.bookmark_id, row.user_id, row.doc_id, row.anchor_json, row.name,
         row.version, row.created_at, row.updated_at, row.deleted_at,
+        sortOrder, row.chapter_title ?? null,
       )
   }
 
@@ -620,6 +635,10 @@ export class DataAccessLibrary {
       name?: string | null
       updated_at?: string
       deleted_at?: string | null
+      /** ★ B1 */
+      sort_order?: number
+      /** ★ B4 */
+      chapter_title?: string | null
     },
   ): boolean {
     const sets: string[] = ['version = version + 1']
@@ -640,6 +659,14 @@ export class DataAccessLibrary {
       sets.push('deleted_at = ?')
       params.push(fields.deleted_at)
     }
+    if (fields.sort_order !== undefined) {
+      sets.push('sort_order = ?')
+      params.push(fields.sort_order)
+    }
+    if (fields.chapter_title !== undefined) {
+      sets.push('chapter_title = ?')
+      params.push(fields.chapter_title)
+    }
     params.push(bookmarkId, baseVersion)
 
     const r = getDb()
@@ -658,6 +685,10 @@ export class DataAccessLibrary {
       name?: string | null
       updated_at?: string
       deleted_at?: string | null
+      /** ★ B1 */
+      sort_order?: number
+      /** ★ B4 */
+      chapter_title?: string | null
     },
   ): void {
     const sets: string[] = ['version = version + 1']
@@ -677,6 +708,14 @@ export class DataAccessLibrary {
     if (fields.deleted_at !== undefined) {
       sets.push('deleted_at = ?')
       params.push(fields.deleted_at)
+    }
+    if (fields.sort_order !== undefined) {
+      sets.push('sort_order = ?')
+      params.push(fields.sort_order)
+    }
+    if (fields.chapter_title !== undefined) {
+      sets.push('chapter_title = ?')
+      params.push(fields.chapter_title)
     }
     params.push(bookmarkId)
     getDb()
@@ -729,6 +768,182 @@ export class DataAccessLibrary {
       )
       .get(userId, docId) as { n: number }
     return row.n
+  }
+
+  /** B1：下一篇书签的排序位（同文档内 max+1，即追加到末尾） */
+  nextSortOrder(userId: string, docId: string): number {
+    const row = getDb()
+      .prepare(
+        `SELECT COALESCE(MAX(sort_order), -1) AS m FROM T_Bookmark
+          WHERE user_id = ? AND doc_id = ?`,
+      )
+      .get(userId, docId) as { m: number }
+    return row.m + 1
+  }
+
+  /**
+   * B4：创建书签时补写 chapter_title（以及可选的 sort_order）。
+   * **不递增 version、不动 updated_at** —— 契约 §7.1 要求新建书签的 version 为 1，
+   * 走 updateBookmarkIfVersion 会把它顶成 2。
+   */
+  setBookmarkMeta(
+    bookmarkId: string,
+    fields: { sort_order?: number; chapter_title?: string | null },
+  ): void {
+    const sets: string[] = []
+    const params: unknown[] = []
+    if (fields.sort_order !== undefined) {
+      sets.push('sort_order = ?')
+      params.push(fields.sort_order)
+    }
+    if (fields.chapter_title !== undefined) {
+      sets.push('chapter_title = ?')
+      params.push(fields.chapter_title)
+    }
+    if (sets.length === 0) return
+    params.push(bookmarkId)
+    getDb()
+      .prepare(`UPDATE T_Bookmark SET ${sets.join(', ')} WHERE bookmark_id = ?`)
+      .run(...params)
+  }
+
+  /**
+   * B3：分页列表。sort 取白名单值，不做字符串拼接注入。
+   * chapter 排序时 chapter_title 为空的（B4 之前的旧数据）固定排最后，不随 order 翻转。
+   */
+  listBookmarksPaged(
+    userId: string,
+    docId: string,
+    sort: 'order' | 'createdAt' | 'chapter',
+    order: 'asc' | 'desc',
+    page: number,
+    pageSize: number,
+  ): { total: number; rows: BookmarkRow[] } {
+    const total = (
+      getDb()
+        .prepare(
+          `SELECT COUNT(*) AS n FROM T_Bookmark
+            WHERE user_id = ? AND doc_id = ? AND deleted_at IS NULL`,
+        )
+        .get(userId, docId) as { n: number }
+    ).n
+
+    const col =
+      sort === 'createdAt' ? 'created_at' : sort === 'chapter' ? 'chapter_title' : 'sort_order'
+    const dir = order === 'desc' ? 'DESC' : 'ASC'
+    const nullsLast = sort === 'chapter' ? ', (chapter_title IS NULL) ASC' : ''
+
+    const rows = getDb()
+      .prepare(
+        `SELECT * FROM T_Bookmark
+          WHERE user_id = ? AND doc_id = ? AND deleted_at IS NULL
+          ORDER BY ${col} ${dir}${nullsLast}, bookmark_id ASC
+          LIMIT ? OFFSET ?`,
+      )
+      .all(userId, docId, pageSize, (page - 1) * pageSize) as BookmarkRow[]
+
+    return { total, rows }
+  }
+
+  /**
+   * B1：整表重排。**一个事务，任一条版本不匹配即整体回滚**（任务书 §B1 坑 3：
+   * 不接受版本冲突时的部分成功）。
+   *
+   * better-sqlite3 的 transaction() 在回调抛错时自动 ROLLBACK，所以判冲突直接抛。
+   */
+  reorderBookmarks(
+    userId: string,
+    docId: string,
+    items: { bookmarkId: string; sortOrder: number; baseVersion: number }[],
+    updatedAt: string,
+  ):
+    | { ok: true; rows: BookmarkRow[] }
+    | { ok: false; failedId: string; serverVersion: number } {
+    const db = getDb()
+
+    const update = db.prepare(
+      `UPDATE T_Bookmark
+          SET sort_order = ?, version = version + 1, updated_at = ?
+        WHERE bookmark_id = ? AND user_id = ? AND doc_id = ?
+          AND version = ? AND deleted_at IS NULL`,
+    )
+
+    const run = db.transaction(() => {
+      for (const it of items) {
+        const r = update.run(it.sortOrder, updatedAt, it.bookmarkId, userId, docId, it.baseVersion)
+        if (r.changes === 0) {
+          const cur = db
+            .prepare('SELECT version FROM T_Bookmark WHERE bookmark_id = ?')
+            .get(it.bookmarkId) as { version: number } | undefined
+          throw Object.assign(new Error('reorder conflict'), {
+            failedId: it.bookmarkId,
+            serverVersion: cur?.version ?? 0,
+          })
+        }
+      }
+    })
+
+    try {
+      run()
+    } catch (e) {
+      const err = e as { failedId?: string; serverVersion?: number }
+      if (err.failedId) {
+        return { ok: false, failedId: err.failedId, serverVersion: err.serverVersion ?? 0 }
+      }
+      throw e
+    }
+
+    return {
+      ok: true,
+      rows: items.map((it) => this.getBookmarkById(it.bookmarkId)!),
+    }
+  }
+
+  /** B2：有未删除书签的文档，按组内最近更新时间降序，分页作用于**文档** */
+  listBookmarkedDocuments(
+    userId: string,
+    page: number,
+    pageSize: number,
+  ): { total: number; docs: { doc_id: string; doc_title: string | null; file_name: string }[] } {
+    const total = (
+      getDb()
+        .prepare(
+          `SELECT COUNT(DISTINCT doc_id) AS n FROM T_Bookmark
+            WHERE user_id = ? AND deleted_at IS NULL`,
+        )
+        .get(userId) as { n: number }
+    ).n
+
+    const docs = getDb()
+      .prepare(
+        `SELECT b.doc_id AS doc_id, d.title AS doc_title, d.file_name AS file_name
+           FROM T_Bookmark b
+           JOIN T_Document d ON d.doc_id = b.doc_id
+          WHERE b.user_id = ? AND b.deleted_at IS NULL
+          GROUP BY b.doc_id
+          ORDER BY MAX(b.updated_at) DESC, b.doc_id ASC
+          LIMIT ? OFFSET ?`,
+      )
+      .all(userId, pageSize, (page - 1) * pageSize) as {
+      doc_id: string
+      doc_title: string | null
+      file_name: string
+    }[]
+
+    return { total, docs }
+  }
+
+  /** B2：取这批文档的全部未删除书签，按文档 + 拖动顺序排 */
+  listBookmarksByDocIds(userId: string, docIds: string[]): BookmarkRow[] {
+    if (docIds.length === 0) return []
+    const placeholders = docIds.map(() => '?').join(', ')
+    return getDb()
+      .prepare(
+        `SELECT * FROM T_Bookmark
+          WHERE user_id = ? AND deleted_at IS NULL AND doc_id IN (${placeholders})
+          ORDER BY doc_id ASC, sort_order ASC, bookmark_id ASC`,
+      )
+      .all(userId, ...docIds) as BookmarkRow[]
   }
 }
 
