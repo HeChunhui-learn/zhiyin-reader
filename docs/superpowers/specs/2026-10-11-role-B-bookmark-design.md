@@ -171,18 +171,19 @@ cd server && npm run db:reset && npm run seed
 
 ```json
 {
-  "total": 4, "page": 1, "pageSize": 20,
+  "total": 2, "page": 1, "pageSize": 20,
   "groups": [
     { "docId": "doc_5b7e", "docTitle": "人间词话", "bookmarkCount": 2,
       "items": [ { "bookmarkId": "...", "name": "...", "anchor": {...},
                    "sortOrder": 0, "chapterTitle": "人间词话 · 卷一",
-                   "createdAt": "...", "updatedAt": "..." } ] }
+                   "createdAt": "...", "updatedAt": "...", "deletedAt": null } ] }
   ]
 }
 ```
 
-- `total` 是**书签总数**，分页作用于书签；分组在分页结果内进行。
-- 文档组按组内最近 `updated_at` 降序。
+- **分页作用于文档组，不是书签**。`total` 因此是"有书签的文档数"。
+  这样 `bookmarkCount` 才是该文档的真实书签总数——按书签分页的话，它只会是"本页里该文档的条数"，对读者是错的。
+- 文档组按组内最近 `updated_at` 降序；组内按 `sort_order` 升序。
 - 若 `chapterTitle` 为空（B4 之前的旧数据），前端降级显示"文档名 + 段落序号"。
 
 ### 4.4 `POST /api/bookmarks`（追加可选字段）
@@ -209,12 +210,19 @@ cd server && npm run db:reset && npm run seed
 - `BookmarkRow` 追加 `sort_order: number`、`chapter_title: string | null`。
 - `insertBookmark` 的列清单追加两列。
 - `updateBookmarkIfVersion` / `forceUpdateBookmark` 的 `fields` 追加可选的 `sort_order`、`chapter_title`。
-- 新增方法：
+- 新增方法（6 个）：
+  - `nextSortOrder(userId, docId): number` —— 同文档内 `max(sort_order) + 1`
+  - `setBookmarkMeta(bookmarkId, { sort_order?, chapter_title? }): void` —— **不递增版本号、不动 `updated_at`**
   - `listBookmarksPaged(userId, docId, sort, order, page, pageSize): { total, rows }`
-  - `listBookmarksOverview(userId, page, pageSize): { total, rows }`（跨文档，带文档标题）
-  - `nextSortOrder(userId, docId): number`
+  - `reorderBookmarks(userId, docId, items, updatedAt)` —— 事务内整表重排，返回 `{ok:true, rows}` 或 `{ok:false, failedId, serverVersion}`
+  - `listBookmarkedDocuments(userId, page, pageSize): { total, docs }` —— 有书签的文档，按组内最近更新时间降序
+  - `listBookmarksByDocIds(userId, docIds): BookmarkRow[]`
 
 > 书签数量统计**复用已有的 `countBookmarksByDocument`**（`dao/index.ts:725`），不新增。
+
+**`BookmarkRow` 的新字段必须是可选的**（`sort_order?`、`chapter_title?`）。`server/src/sync/service.ts` 在禁区里，它构造 `BookmarkRow` 字面量时不带这两个字段——定义为必填会让该文件立刻编译不过。缺省值由 `insertBookmark` 兜底：`sort_order` 取 `nextSortOrder`（追加到末尾），`chapter_title` 取 `null`。这样经 `/api/sync` 创建的书签也能拿到合理序号。
+
+**`chapter_title` 不走 `updateBookmarkIfVersion` 写**，而是走新增的 `setBookmarkMeta`：前者会递增 `version`，把契约 §7.1 要求的新建 `version = 1` 顶成 2。
 
 > 手册 §7.2 把 `dao/index.ts` 列为需协商文件。本次改动为**纯追加**，不触碰已有方法签名。
 
@@ -229,9 +237,9 @@ cd server && npm run db:reset && npm run seed
 
 **`client/src/api/client.ts`**（需协商文件，纯追加）：
 
-- `BookmarkDto` 追加 `sortOrder: number`、`chapterTitle: string | null`。
+- `BookmarkDto` 追加 **可选**的 `sortOrder?: number`、`chapterTitle?: string | null` —— 必须是可选的：契约 §7.4 的增量同步响应不带这两个字段，`listBookmarks` 的返回类型不能因此变窄。
 - 新增 `listBookmarksPaged`、`listBookmarksOverview`、`reorderBookmarks`。
-- `BookmarkPayload` 追加可选的 `sortOrder`、`chapterTitle`。
+- `BookmarkPayload` 追加可选的 `chapterTitle`。
 
 **`client/src/features/sync/useBookmarks.ts`**（可改文件）：
 
@@ -349,7 +357,8 @@ cd server && npm run db:reset && npm run seed
 | `server/src/routes/bookmarks.ts` | 3 个新接口 + POST 追加字段 + 本地 DTO |
 | `client/src/features/sync/useBookmarks.ts` | `reorder` + 切换分页接口 |
 | `client/src/pages/LibraryView.tsx` | 「我的书签」真实页面 |
-| `client/src/pages/ReaderView.tsx` | 拖动、分页控件、默认名、`?para=` 定位 |
+| `client/src/pages/ReaderView.tsx` | 接线面板、默认名、`?para=` 定位 |
+| `client/src/pages/BookmarkPanel.tsx` | **新建**：书签面板（列表、拖动、分页、重命名、删除） |
 | `server/sql/seed.ts` | 50 书签的演示书 |
 
 ### 需协商（本次为纯追加，不重排已有定义）
