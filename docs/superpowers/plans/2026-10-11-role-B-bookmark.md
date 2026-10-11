@@ -915,6 +915,13 @@ export interface BookmarkDto {
       const byId = new Map(items.map((i) => [i.bookmarkId, i]))
       const next = orderedIds.map((id) => byId.get(id)).filter((i): i is BookmarkDto => !!i)
       if (next.length !== items.length) return
+      // 跨页拖动会写坏顺序：items 只是当前一页，页内下标（0..19）与全文档的 sort_order
+      // 不是一回事，第二页的下标会与第一页已有的序号撞车，服务端又不重排其余行，
+      // 拖完顺序会跨页散架。一页装得下才允许拖动（Task 5/6 的拖动入口同步禁用）。
+      if (total > pageSize) {
+        setError('书签超过一页，暂不支持拖动排序')
+        return
+      }
 
       setItems(next.map((it, i) => ({ ...it, sortOrder: i })))
       try {
@@ -1562,13 +1569,24 @@ Expected: 前 5 条 `chapterTitle` 全是「第一章　起点」。（`chapter_
       )}
 ```
 
-同时：`sort !== 'order'` 时禁用拖动与 ↑/↓（顺序由排序决定，拖了也会被下一次 reload 覆盖）：
+同时：**不满足下列任一条件就禁用拖动与 ↑/↓**，并在面板上说明原因（否则读者会看到控件点了没反应）：
 
 ```tsx
-  const canDrag = items.length > 1 && sort === 'order'
+  // 三个条件缺一不可：
+  //  · 至少两条才有排序可言
+  //  · 非"拖动顺序"时顺序由排序决定，拖了也会被下一次 reload 覆盖
+  //  · 一页装不下时不能拖 —— 页内下标与全文档 sort_order 不是一回事，会跨页撞车
+  //    （useBookmarks.reorder 里也有同一道闸，这里是让控件如实反映）
+  const canDrag = items.length > 1 && sort === 'order' && total <= pageSize
 ```
 
-并用 `canDrag` 替换 `onPointerDown` 里的 `if (items.length < 2) return`，以及给 ↑/↓ 按钮的 `disabled` 加上 `|| !canDrag`。
+并用 `canDrag` 替换 `onPointerDown` 里的 `if (items.length < 2) return`，给 ↑/↓ 按钮的 `disabled` 加上 `|| !canDrag`，在 `marks-pager` 那一行里补一句提示：
+
+```tsx
+          {sort === 'order' && total > pageSize && (
+            <span className="muted">书签超过一页，暂不支持拖动排序</span>
+          )}
+```
 
 `app.css` 末尾追加：
 
