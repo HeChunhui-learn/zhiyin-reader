@@ -3,9 +3,13 @@
 -- 依据《软件设计规格说明书》4.3.1 节的九张表，字段名与该节逐条对齐。
 -- 执行方式：服务端首次启动时自动执行（见 src/db.ts）；也可单独执行本文件。
 --
--- 与 04 §4.3.1 的差异（仅一处，已在下方标注）：
---   T_Paragraph 增加了 para_type 列。04 的字段清单里没有这一列，但没有它就无法
---   区分标题段与正文段，标题渲染与书签默认名都失去依据（材料审查 E10）。
+-- 与 04 §4.3.1 的差异：凡在字段清单之外补充的列，均在下方以 ★ 标注。
+--   本表（T_Bookmark）由角色 B 迭代追加 sort_order（同文档内排序位，稠密整数
+--   0,1,2…）与 chapter_title（书签所在章节标题，B2 的"所属章节"与 B4 默认名
+--   复用该列）两列，并追加 ix_bookmark_order 索引；两列已登记于
+--   docs/迭代登记-B.md 附录 A。
+--   T_Paragraph 的 para_type 是另一处补充列：04 的字段清单里没有它，但没有它
+--   就无法区分标题段与正文段，标题渲染与书签默认名都失去依据（材料审查 E10）。
 -- ============================================================================
 
 PRAGMA foreign_keys = ON;
@@ -127,10 +131,15 @@ CREATE TABLE IF NOT EXISTS T_Bookmark (
   version     INTEGER NOT NULL DEFAULT 0,
   created_at  TEXT NOT NULL,
   updated_at  TEXT NOT NULL,
-  deleted_at  TEXT                      -- 软删除墓碑，非空表示已删除
+  deleted_at  TEXT,                     -- 软删除墓碑，非空表示已删除
+  sort_order    INTEGER NOT NULL DEFAULT 0,  -- ★ 追加列 B1：同文档内排序位，稠密整数 0,1,2…
+  chapter_title TEXT                         -- ★ 追加列 B4：章节标题；B2 的"所属章节"复用它
 );
 CREATE INDEX IF NOT EXISTS ix_bookmark_sync
   ON T_Bookmark(user_id, doc_id, updated_at);
+-- ★ 追加索引 B1：按拖动顺序取列表
+CREATE INDEX IF NOT EXISTS ix_bookmark_order
+  ON T_Bookmark(user_id, doc_id, sort_order);
 
 -- (9) 令牌表 ----------------------------------------------------------------
 -- 只由认证服务直接读写，不经 DataAccessLibrary（CLAUDE.md 裁决 4）。

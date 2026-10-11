@@ -305,6 +305,8 @@ export interface BookmarkPayload {
   docId: string
   anchor: Anchor
   name: string | null
+  /** ★ B4：章节标题 */
+  chapterTitle?: string | null
   updatedAt: string
 }
 
@@ -317,6 +319,10 @@ export interface BookmarkDto {
   createdAt: string
   updatedAt: string
   deletedAt: string | null
+  /** ★ B1：同文档内排序位。§7.4 的增量同步响应不带它，故可选 */
+  sortOrder?: number
+  /** ★ B4：书签所在章节标题。§7.4 的增量同步响应不带它，故可选 */
+  chapterTitle?: string | null
 }
 
 /** 契约 §8.3 的冲突信封 */
@@ -566,6 +572,58 @@ export const api = {
     return request<{ serverTime: string; items: BookmarkDto[] }>(
       `/bookmarks${qs ? '?' + qs : ''}`,
     )
+  },
+
+  /**
+   * §7.5 分页列表（B1/B3）。界面列表走这里。
+   * §7.4 的 listBookmarks 保持原样，只服务增量同步。
+   */
+  listBookmarksPaged: (opts: {
+    docId: string
+    sort?: 'order' | 'createdAt' | 'chapter'
+    order?: 'asc' | 'desc'
+    page?: number
+    pageSize?: number
+  }) => {
+    const q = new URLSearchParams({ docId: opts.docId })
+    if (opts.sort) q.set('sort', opts.sort)
+    if (opts.order) q.set('order', opts.order)
+    if (opts.page) q.set('page', String(opts.page))
+    if (opts.pageSize) q.set('pageSize', String(opts.pageSize))
+    return request<{ total: number; page: number; pageSize: number; items: BookmarkDto[] }>(
+      `/bookmarks/page?${q.toString()}`,
+    )
+  },
+
+  /** §7.7 拖动排序：一次提交整批新顺序 */
+  reorderBookmarks: (body: {
+    docId: string
+    items: { bookmarkId: string; sortOrder: number; baseVersion: number }[]
+    updatedAt: string
+  }) =>
+    request<{
+      docId: string
+      applied: number
+      items: { bookmarkId: string; sortOrder: number; version: number }[]
+    }>('/bookmarks/reorder', { method: 'POST', body: JSON.stringify(body) }),
+
+  /** §7.6 跨文档书签总览（B2）：按文档分组 */
+  listBookmarksOverview: (opts: { page?: number; pageSize?: number } = {}) => {
+    const q = new URLSearchParams()
+    if (opts.page) q.set('page', String(opts.page))
+    if (opts.pageSize) q.set('pageSize', String(opts.pageSize))
+    const qs = q.toString()
+    return request<{
+      total: number
+      page: number
+      pageSize: number
+      groups: {
+        docId: string
+        docTitle: string
+        bookmarkCount: number
+        items: BookmarkDto[]
+      }[]
+    }>(`/bookmarks/overview${qs ? '?' + qs : ''}`)
   },
 
   /* 批量增量同步（契约 §8） */

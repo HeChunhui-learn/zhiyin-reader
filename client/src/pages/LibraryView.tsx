@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { ApiError, api } from '../api/client'
+import { ApiError, api, type BookmarkDto } from '../api/client'
 import { parseFile } from '../features/parse'
 import { cachePut } from '../features/render/imageCache'
 import { useSession } from '../state/session'
@@ -37,6 +37,14 @@ export default function LibraryView() {
   const [error, setError] = useState('')
   const [stage, setStage] = useState<ImportStage>({ kind: 'idle' })
 
+  const [overview, setOverview] = useState<
+    Awaited<ReturnType<typeof api.listBookmarksOverview>>['groups']
+  >([])
+  const [bmLoading, setBmLoading] = useState(false)
+  const [bmPage, setBmPage] = useState(1)
+  const [bmTotal, setBmTotal] = useState(0)
+  const [bmError, setBmError] = useState('')
+
   const fileRef = useRef<HTMLInputElement>(null)
   const navigate = useNavigate()
   const { user, ready, logout } = useSession()
@@ -49,7 +57,7 @@ export default function LibraryView() {
   const category = NAV.find((n) => n.key === nav)?.category ?? 'all'
 
   const load = useCallback(async () => {
-    if (!user) return
+    if (!user || nav === 'bookmarks') return
     setLoading(true)
     setError('')
     try {
@@ -63,12 +71,32 @@ export default function LibraryView() {
     } finally {
       setLoading(false)
     }
-  }, [user, keyword, category])
+  }, [user, keyword, category, nav])
 
   useEffect(() => {
     const t = window.setTimeout(() => void load(), keyword ? 300 : 0)
     return () => window.clearTimeout(t)
   }, [load, keyword])
+
+  /* B2：书签分类走跨文档总览接口，不再走文档列表 */
+  const loadOverview = useCallback(async () => {
+    if (!user || nav !== 'bookmarks') return
+    setBmLoading(true)
+    setBmError('')
+    try {
+      const r = await api.listBookmarksOverview({ page: bmPage, pageSize: 20 })
+      setOverview(r.groups)
+      setBmTotal(r.total)
+    } catch (e) {
+      setBmError(e instanceof ApiError ? e.message : '加载书签失败，请稍后重试。')
+    } finally {
+      setBmLoading(false)
+    }
+  }, [user, nav, bmPage])
+
+  useEffect(() => {
+    void loadOverview()
+  }, [loadOverview])
 
   async function onPickFile(e: React.ChangeEvent<HTMLInputElement>) {
     const file = e.target.files?.[0]
@@ -205,6 +233,81 @@ export default function LibraryView() {
             </div>
           )}
 
+          {nav === 'bookmarks' && (
+            <div className="marks-overview">
+              {bmLoading && <div className="shelf-empty">正在加载书签…</div>}
+
+              {!bmLoading && bmError && (
+                <div className="shelf-empty">
+                  <p className="error-text">{bmError}</p>
+                  <button className="btn btn-primary" onClick={() => void loadOverview()}>
+                    重试
+                  </button>
+                </div>
+              )}
+
+              {!bmLoading && !bmError && overview.length === 0 && (
+                <div className="shelf-empty">
+                  <p>还没有任何书签</p>
+                  <p className="muted">在阅读界面点右上角「书签 → 加当前位置」</p>
+                </div>
+              )}
+
+              {!bmLoading && !bmError && overview.length > 0 && (
+                <>
+                  {overview.map((g) => (
+                    <section className="marks-group" key={g.docId}>
+                      <header className="marks-group-head">
+                        <span className="marks-group-title">{g.docTitle}</span>
+                        <span className="muted">{g.bookmarkCount} 条</span>
+                      </header>
+                      {g.items.map((b: BookmarkDto) => (
+                        <button
+                          className="marks-row"
+                          key={b.bookmarkId}
+                          onClick={() => navigate(`/read/${b.docId}?para=${b.anchor.paragraphIndex}`)}
+                        >
+                          <span className="marks-row-name">{b.name || '（无名）'}</span>
+                          {/* B4 之前的旧数据没有 chapterTitle，降级成"文档名 + 段落序号" */}
+                          <span className="marks-row-chapter">
+                            {b.chapterTitle
+                              ? `${b.chapterTitle} · 第 ${b.anchor.paragraphIndex + 1} 段`
+                              : `${g.docTitle} · 第 ${b.anchor.paragraphIndex + 1} 段`}
+                          </span>
+                          <span className="marks-row-time">
+                            {new Date(b.createdAt).toLocaleString('zh-CN')}
+                          </span>
+                        </button>
+                      ))}
+                    </section>
+                  ))}
+
+                  {bmTotal > 20 && (
+                    <div className="marks-pager">
+                      <span className="muted">
+                        第 {bmPage} / {Math.ceil(bmTotal / 20)} 页 · 共 {bmTotal} 本
+                      </span>
+                      <button
+                        className="btn btn-ghost btn-sm"
+                        disabled={bmPage <= 1}
+                        onClick={() => setBmPage((p) => p - 1)}
+                      >
+                        上一页
+                      </button>
+                      <button
+                        className="btn btn-ghost btn-sm"
+                        disabled={bmPage >= Math.ceil(bmTotal / 20)}
+                        onClick={() => setBmPage((p) => p + 1)}
+                      >
+                        下一页
+                      </button>
+                    </div>
+                  )}
+                </>
+              )}
+            </div>
+          )}
+
           {loading && <div className="shelf-empty">正在加载书架…</div>}
 
           {!loading && error && (
@@ -214,28 +317,24 @@ export default function LibraryView() {
             </div>
           )}
 
-          {!loading && !error && books.length === 0 && (
+          {nav !== 'bookmarks' && !loading && !error && books.length === 0 && (
             <div className="shelf-empty">
               <p>
                 {keyword
                   ? '没有匹配的文档'
-                  : nav === 'bookmarks'
-                    ? '还没有任何文档带书签'
-                    : nav === 'offline'
-                      ? '这里恒为空'
-                      : '书架还是空的'}
+                  : nav === 'offline'
+                    ? '这里恒为空'
+                    : '书架还是空的'}
               </p>
               <p className="muted">
-                {nav === 'bookmarks'
-                  ? '在阅读界面点右上角「书签 → 加当前位置」'
-                  : nav === 'offline'
-                    ? '"有本地副本"是纯客户端状态，服务端不可知（材料审查 O21）'
-                    : '点右上角「导入文档」，选一个 EPUB / TXT / Markdown 文件试试'}
+                {nav === 'offline'
+                  ? '"有本地副本"是纯客户端状态，服务端不可知（材料审查 O21）'
+                  : '点右上角「导入文档」，选一个 EPUB / TXT / Markdown 文件试试'}
               </p>
             </div>
           )}
 
-          {!loading && !error && books.length > 0 && (
+          {nav !== 'bookmarks' && !loading && !error && books.length > 0 && (
             <div className="book-grid">
               {books.map((b) => (
                 <article

@@ -38,6 +38,24 @@ const PARAS: { type: 'h1' | 'h2' | 'p'; text: string }[] = [
   { type: 'p', text: '古今之成大事业、大学问者，必经过三种之境界：“昨夜西风凋碧树。独上高楼，望尽天涯路。”此第一境也。“衣带渐宽终不悔，为伊消得人憔悴。”此第二境也。“众里寻他千百度，蓦然回首，那人却在，灯火阑珊处。”此第三境也。' },
 ]
 
+/** 角色 D 的测试要一份"书签很多"的稳定数据，这里造一本 50 书签的书（任务书 §4） */
+const BIG_TITLE = '书签压力册'
+const BIG_PARAS: { type: 'h1' | 'h2' | 'p'; text: string }[] = Array.from(
+  { length: 40 },
+  (_, i) => {
+    if (i === 0) return { type: 'h1' as const, text: '第一章　起点' }
+    if (i === 13) return { type: 'h2' as const, text: '第二章　中段' }
+    if (i === 27) return { type: 'h2' as const, text: '第三章　收束' }
+    return { type: 'p' as const, text: `第 ${i + 1} 段正文。这一段的用途是给书签提供落点。` }
+  },
+)
+/** 50 个书签：段落号 0..39 循环取，章节标题与上面三个标题段对应 */
+const BIG_BOOKMARKS = Array.from({ length: 50 }, (_, i) => {
+  const para = i % 40
+  const chapter = para < 13 ? '第一章　起点' : para < 27 ? '第二章　中段' : '第三章　收束'
+  return { paraIndex: para, chapterTitle: chapter }
+})
+
 /** 04 §4.3.1 的 content_hash：TXT/Markdown 按归一化后的正文文本算 SHA-256 */
 function contentHash(paras: { text: string }[]): string {
   const normalized = paras
@@ -100,7 +118,55 @@ function main(): void {
     })),
   )
 
-  console.log(`已灌入演示数据：1 个用户、1 篇文档（${PARAS.length} 段）`)
+  // 第二本书：50 个书签，供分页与跨文档总览的验收使用
+  const bigText = BIG_PARAS.map((p) => p.text).join('\n')
+  const bigDoc = dal.insertDocument({
+    doc_id: 'doc_bookmark50',
+    owner_id: DEMO_USER_ID,
+    file_name: '书签压力册.txt',
+    file_format: 'TXT',
+    file_size: Buffer.byteLength(bigText, 'utf8'),
+    title: BIG_TITLE,
+    author: null,
+    content_hash: contentHash(BIG_PARAS),
+    resource_url: null,
+    imported_at: now(),
+  })
+
+  dal.insertParagraphs(
+    BIG_PARAS.map((p, i) => ({
+      para_id: newId('para'),
+      doc_id: bigDoc.doc_id,
+      para_index: i,
+      para_type: p.type,
+      text: p.text,
+    })),
+  )
+
+  const stamp = now()
+  BIG_BOOKMARKS.forEach((bm, i) => {
+    dal.insertBookmark({
+      bookmark_id: `bm_seed${String(i).padStart(2, '0')}`,
+      user_id: DEMO_USER_ID,
+      doc_id: bigDoc.doc_id,
+      anchor_json: JSON.stringify({
+        chapterIndex: 0,
+        paragraphIndex: bm.paraIndex,
+        sentenceIndex: 0,
+        charOffset: 0,
+        scrollOffset: 0,
+      }),
+      name: `${bm.chapterTitle} · 第 ${bm.paraIndex + 1} 段`,
+      version: 1,
+      created_at: stamp,
+      updated_at: stamp,
+      deleted_at: null,
+      sort_order: i,
+      chapter_title: bm.chapterTitle,
+    })
+  })
+
+  console.log(`已灌入演示数据：1 个用户、2 篇文档（${PARAS.length} 段 + ${BIG_PARAS.length} 段 50 书签）`)
   console.log(`文档 id：${doc.doc_id}`)
   console.log(`演示账号：${DEMO_ACCOUNT} ／ ${DEMO_PASSWORD}`)
   closeDb()

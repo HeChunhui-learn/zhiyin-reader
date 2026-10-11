@@ -1110,3 +1110,48 @@ button {
   font-size: 13px;
   z-index: 80;
 }
+
+/* ---- B1：书签面板的拖动排序 ---- */
+.marks-add { display: flex; gap: 6px; padding: 6px 10px; }
+.marks-list { display: flex; flex-direction: column; }
+.mark-item.dragging { opacity: 0.85; background: rgba(59, 110, 165, 0.12); }
+.mark-grip {
+  cursor: grab;
+  touch-action: none;          /* 关键：不设的话触控会被浏览器当成滚动抢走指针 */
+  user-select: none;
+  border: none;
+  background: transparent;
+  color: inherit;
+  opacity: 0.5;
+  padding: 0 4px;
+}
+.mark-grip:active { cursor: grabbing; opacity: 1; }
+.mark-act:disabled { opacity: 0.3; cursor: default; }
+
+/* ---- B3：书签面板的分页与排序 ---- */
+.marks-pager {
+  display: flex; align-items: center; gap: 8px; flex-wrap: wrap;
+  padding: 8px 10px; border-top: 1px solid rgba(0, 0, 0, 0.08);
+}
+.marks-sort { width: auto; padding: 2px 6px; }
+
+/* ---- B2：跨文档书签总览 ---- */
+.marks-overview { padding: 4px 2px 24px; }
+.marks-group { margin-bottom: 18px; }
+.marks-group-head {
+  display: flex; align-items: baseline; gap: 10px;
+  padding: 6px 2px; border-bottom: 1px solid rgba(0, 0, 0, 0.08);
+}
+.marks-group-title { font-weight: 600; }
+.marks-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) auto;
+  gap: 12px; align-items: center; width: 100%;
+  padding: 8px 6px; text-align: left;
+  border: none; background: transparent; cursor: pointer;
+  border-bottom: 1px solid rgba(0, 0, 0, 0.05);
+}
+.marks-row:hover { background: rgba(59, 110, 165, 0.07); }
+.marks-row-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.marks-row-chapter,
+.marks-row-time { color: #6b7280; font-size: 13px; }

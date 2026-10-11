@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
-import { useNavigate, useParams } from 'react-router-dom'
+import { useNavigate, useParams, useSearchParams } from 'react-router-dom'
 import { ApiError, api, type ContentImageRef, type DocumentDetail } from '../api/client'
 import type { Paragraph } from '../models/types'
 import { splitSentences, type Sentence } from '../features/readalong/splitSentences'
@@ -26,11 +26,14 @@ import LazyImage from '../features/render/LazyImage'
 import { useSession } from '../state/session'
 import PlaybackBar from './PlaybackBar'
 import ConflictDialog from './ConflictDialog'
+import BookmarkPanel from './BookmarkPanel'
 
 export default function ReaderView() {
   const { docId = '' } = useParams()
   const navigate = useNavigate()
   const { user, ready } = useSession()
+  const [searchParams] = useSearchParams()
+  const jumpPara = searchParams.get('para')
 
   const [book, setBook] = useState<DocumentDetail | null>(null)
   const [paragraphs, setParagraphs] = useState<Paragraph[]>([])
@@ -40,8 +43,6 @@ export default function ReaderView() {
 
   const [tocOpen, setTocOpen] = useState(false)
   const [marksOpen, setMarksOpen] = useState(false)
-  const [renamingId, setRenamingId] = useState('')
-  const [renamingText, setRenamingText] = useState('')
   const [dialogOpen, setDialogOpen] = useState(false)
   const [toast, setToast] = useState('')
 
@@ -119,6 +120,11 @@ export default function ReaderView() {
     (index: number, smooth = true) => {
       const root = rootRef.current
       if (!root) return
+      // 程序化跳转要同步刷新"当前段落"，不能只靠滚动事件的防抖回调 ——
+      // 那个 effect 的依赖里含 prog，而 useProgress 每次渲染都返回新对象，
+      // 于是每次渲染都会清掉待触发的定时器；跳转后没滚动的话 ref 会停在旧值，
+      // 紧接着加的书签就会拿到上一段的锚点、默认名与章节标题。
+      currentParaRef.current = index
       if (!virtual) {
         root
           .querySelector(`[data-para="${index}"]`)
@@ -135,14 +141,26 @@ export default function ReaderView() {
   /** 当前可见段落号，加书签时用它 */
   const currentParaRef = useRef(0)
   const resumedRef = useRef(false)
+
+  /** B2：从书架「我的书签」点进来时，定位到锚点段落（只跳一次，不干扰后续滚动） */
+  const jumpedRef = useRef(false)
+  useEffect(() => {
+    if (jumpedRef.current) return
+    if (jumpPara === null || paragraphs.length === 0) return
+    jumpedRef.current = true
+    gotoParagraph(Number(jumpPara), false)
+  }, [jumpPara, paragraphs, gotoParagraph])
+
   useEffect(() => {
     if (resumedRef.current) return
     if (!prog.ready || paragraphs.length === 0) return
     resumedRef.current = true
+    // 带 ?para= 时由上面的 effect 负责定位，不再恢复上次位置（否则两个跳转打架）
+    if (jumpPara !== null) return
     if (prog.resumeParagraph <= 0) return
     const idx = clampToParagraphs({ ...anchorAt(prog.resumeParagraph) }, paragraphs)
     gotoParagraph(idx, false)
-  }, [prog.ready, prog.resumeParagraph, paragraphs, gotoParagraph])
+  }, [prog.ready, prog.resumeParagraph, paragraphs, gotoParagraph, jumpPara])
 
   /* 滚动停止后上报位置（防抖在 hook 里，契约 §6.3 要求 1500ms） */
   useEffect(() => {
@@ -236,6 +254,50 @@ export default function ReaderView() {
 
   const tocItems = paragraphs.filter((p) => p.type === 'h1' || p.type === 'h2')
 
+  /**
+   * B4：书签默认名 =「章节标题 + 首句片段」（.context/08-书签补充.md §2.3 的要求）。
+   *
+   * 章节标题不需要动解析层——ReaderView 已经拿到带 type: 'h1' | 'h2' 的 paragraphs，
+   * 取锚点段落**之前最近的一个标题段**即可；之前没有就退回文档里第一个标题段，
+   * 再没有就用书名。
+   */
+  const chapterTitleFor = useCallback(
+    (paraIndex: number): string => {
+      for (let i = Math.min(paraIndex, paragraphs.length - 1); i >= 0; i--) {
+        const p = paragraphs[i]
+        if (p && (p.type === 'h1' || p.type === 'h2')) return p.text
+      }
+      const first = paragraphs.find((p) => p.type === 'h1' || p.type === 'h2')
+      return first?.text ?? book?.title ?? ''
+    },
+    [paragraphs, book],
+  )
+
+  /** 首句片段：取锚点段落切分后的第一句，去掉句末标点，超过 20 字截断 */
+  const firstSentenceOf = useCallback(
+    (paraIndex: number): string => {
+      const p = paragraphs[paraIndex]
+      // 标题段本身没有句子（splitSentences 把 h1/h2 排除在外），若锚点正好落在标题段上，
+      // 兜底取 paragraphs[paraIndex].text 会拿到与章节标题一模一样的一串，
+      // 默认名会变成「卷二 · 境界说 · 卷二 · 境界说」。此时不取片段。
+      if (p && (p.type === 'h1' || p.type === 'h2')) return ''
+      const raw = (byPara.get(paraIndex) ?? [])[0]?.text ?? p?.text ?? ''
+      // 去掉句末标点：默认名是「章节标题 · 首句片段」这种复合名，末尾再挂一个句号读着别扭，
+      // 也与任务书 B4 给出的示例形式一致（任务书示例没有句号）
+      const trimmed = raw.replace(/[。．.！!？?；;…]+$/, '')
+      return trimmed.length > 20 ? `${trimmed.slice(0, 20)}…` : trimmed
+    },
+    [byPara, paragraphs],
+  )
+
+  const defaultNameFor = useCallback(
+    (paraIndex: number): string => {
+      const parts = [chapterTitleFor(paraIndex), firstSentenceOf(paraIndex)].filter(Boolean)
+      return parts.join(' · ')
+    },
+    [chapterTitleFor, firstSentenceOf],
+  )
+
   if (!ready || !user || loading) {
     return <div className="reader-page"><div className="shelf-empty">正在加载正文…</div></div>
   }
@@ -261,7 +323,7 @@ export default function ReaderView() {
         <div className="reader-title" title={book.title}>{book.title}</div>
         <button className="btn btn-ghost" onClick={() => setTocOpen((v) => !v)}>目录</button>
         <button className="btn btn-ghost" onClick={() => setMarksOpen((v) => !v)}>
-          书签{bms.items.length > 0 ? `（${bms.items.length}）` : ''}
+          书签{bms.total > 0 ? `（${bms.total}）` : ''}
         </button>
         <button
           className="btn btn-ghost btn-conflict"
@@ -298,74 +360,31 @@ export default function ReaderView() {
         )}
 
         {marksOpen && (
-          <aside className="toc-panel">
-            <div className="toc-head toc-head-row">
-              <span>书签</span>
-              <button
-                className="btn btn-ghost btn-sm"
-                onClick={() => {
-                  const idx = currentParaRef.current
-                  void bms.add(anchorAt(idx, ra.cursor), `第 ${idx + 1} 段`)
-                }}
-              >
-                加当前位置
-              </button>
-            </div>
-            {bms.items.length === 0 && (
-              <p className="muted marks-empty">
-                还没有书签。读到某处点「加当前位置」。
-              </p>
-            )}
-            {bms.items.map((b) => (
-              <div className="mark-item" key={b.bookmarkId}>
-                {renamingId === b.bookmarkId ? (
-                  <input
-                    className="input mark-rename"
-                    autoFocus
-                    value={renamingText}
-                    onChange={(e) => setRenamingText(e.target.value)}
-                    onBlur={() => setRenamingId('')}
-                    onKeyDown={(e) => {
-                      if (e.key === 'Enter') {
-                        void bms.rename(b.bookmarkId, renamingText)
-                        setRenamingId('')
-                      }
-                      if (e.key === 'Escape') setRenamingId('')
-                    }}
-                  />
-                ) : (
-                  <button
-                    className="mark-name"
-                    title="跳到这个书签"
-                    onClick={() => {
-                      gotoParagraph(b.anchor.paragraphIndex)
-                      ra.stopAutoScroll()
-                    }}
-                  >
-                    {b.name || '（无名）'}
-                    <span className="mark-pos">第 {b.anchor.paragraphIndex + 1} 段</span>
-                  </button>
-                )}
-                <button
-                  className="mark-act"
-                  title="重命名"
-                  onClick={() => {
-                    setRenamingId(b.bookmarkId)
-                    setRenamingText(b.name ?? '')
-                  }}
-                >
-                  ✎
-                </button>
-                <button
-                  className="mark-act"
-                  title="删除"
-                  onClick={() => void bms.remove(b.bookmarkId)}
-                >
-                  ✕
-                </button>
-              </div>
-            ))}
-          </aside>
+          <BookmarkPanel
+            items={bms.items}
+            total={bms.total}
+            page={bms.page}
+            pageSize={bms.pageSize}
+            sort={bms.sort}
+            onSortChange={bms.setSort}
+            onPageChange={bms.setPage}
+            defaultAddName={defaultNameFor(currentParaRef.current)}
+            onAdd={(name) => {
+              const idx = currentParaRef.current
+              void bms.add(
+                anchorAt(idx, ra.cursor),
+                name || defaultNameFor(idx),
+                chapterTitleFor(idx),
+              )
+            }}
+            onRename={(id, name) => void bms.rename(id, name)}
+            onRemove={(id) => void bms.remove(id)}
+            onReorder={(ids) => void bms.reorder(ids)}
+            onJump={(paraIndex) => {
+              gotoParagraph(paraIndex)
+              ra.stopAutoScroll()
+            }}
+          />
         )}
 
         <div className="reader-scroll" ref={rootRef}>
