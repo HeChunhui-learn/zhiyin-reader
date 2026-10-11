@@ -1134,3 +1134,24 @@ button {
   padding: 8px 10px; border-top: 1px solid rgba(0, 0, 0, 0.08);
 }
 .marks-sort { width: auto; padding: 2px 6px; }
+
+/* ---- B2：跨文档书签总览 ---- */
+.marks-overview { padding: 4px 2px 24px; }
+.marks-group { margin-bottom: 18px; }
+.marks-group-head {
+  display: flex; align-items: baseline; gap: 10px;
+  padding: 6px 2px; border-bottom: 1px solid rgba(0, 0, 0, 0.08);
+}
+.marks-group-title { font-weight: 600; }
+.marks-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) auto;
+  gap: 12px; align-items: center; width: 100%;
+  padding: 8px 6px; text-align: left;
+  border: none; background: transparent; cursor: pointer;
+  border-bottom: 1px solid rgba(0, 0, 0, 0.05);
+}
+.marks-row:hover { background: rgba(59, 110, 165, 0.07); }
+.marks-row-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.marks-row-chapter,
+.marks-row-time { color: #6b7280; font-size: 13px; }

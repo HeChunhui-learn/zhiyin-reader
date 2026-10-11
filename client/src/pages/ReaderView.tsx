@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
-import { useNavigate, useParams } from 'react-router-dom'
+import { useNavigate, useParams, useSearchParams } from 'react-router-dom'
 import { ApiError, api, type ContentImageRef, type DocumentDetail } from '../api/client'
 import type { Paragraph } from '../models/types'
 import { splitSentences, type Sentence } from '../features/readalong/splitSentences'
@@ -32,6 +32,8 @@ export default function ReaderView() {
   const { docId = '' } = useParams()
   const navigate = useNavigate()
   const { user, ready } = useSession()
+  const [searchParams] = useSearchParams()
+  const jumpPara = searchParams.get('para')
 
   const [book, setBook] = useState<DocumentDetail | null>(null)
   const [paragraphs, setParagraphs] = useState<Paragraph[]>([])
@@ -120,14 +122,26 @@ export default function ReaderView() {
   /** 当前可见段落号，加书签时用它 */
   const currentParaRef = useRef(0)
   const resumedRef = useRef(false)
+
+  /** B2：从书架「我的书签」点进来时，定位到锚点段落（只跳一次，不干扰后续滚动） */
+  const jumpedRef = useRef(false)
+  useEffect(() => {
+    if (jumpedRef.current) return
+    if (jumpPara === null || paragraphs.length === 0) return
+    jumpedRef.current = true
+    gotoParagraph(Number(jumpPara), false)
+  }, [jumpPara, paragraphs, gotoParagraph])
+
   useEffect(() => {
     if (resumedRef.current) return
     if (!prog.ready || paragraphs.length === 0) return
     resumedRef.current = true
+    // 带 ?para= 时由上面的 effect 负责定位，不再恢复上次位置（否则两个跳转打架）
+    if (jumpPara !== null) return
     if (prog.resumeParagraph <= 0) return
     const idx = clampToParagraphs({ ...anchorAt(prog.resumeParagraph) }, paragraphs)
     gotoParagraph(idx, false)
-  }, [prog.ready, prog.resumeParagraph, paragraphs, gotoParagraph])
+  }, [prog.ready, prog.resumeParagraph, paragraphs, gotoParagraph, jumpPara])
 
   /* 滚动停止后上报位置（防抖在 hook 里，契约 §6.3 要求 1500ms） */
   useEffect(() => {
