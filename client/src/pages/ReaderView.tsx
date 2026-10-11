@@ -288,6 +288,12 @@ export default function ReaderView() {
         {marksOpen && (
           <BookmarkPanel
             items={bms.items}
+            total={bms.total}
+            page={bms.page}
+            pageSize={bms.pageSize}
+            sort={bms.sort}
+            onSortChange={bms.setSort}
+            onPageChange={bms.setPage}
             defaultAddName={defaultNameFor(currentParaRef.current)}
             onAdd={(name) => void bms.add(anchorAt(currentParaRef.current, ra.cursor), name)}
             onRename={(id, name) => void bms.rename(id, name)}

@@ -18,6 +18,13 @@ interface Props {
   onRemove: (bookmarkId: string) => void
   onReorder: (orderedIds: string[]) => void
   onJump: (paragraphIndex: number) => void
+  /** B3：分页与排序。状态都在 useBookmarks 里，面板只负责显示与回传 */
+  total: number
+  page: number
+  pageSize: number
+  sort: 'order' | 'createdAt' | 'chapter'
+  onSortChange: (s: 'order' | 'createdAt' | 'chapter') => void
+  onPageChange: (p: number) => void
 }
 
 /** 超过这个像素数才算拖动，避免把手柄上的单击误判成拖拽 */
@@ -31,6 +38,12 @@ export default function BookmarkPanel({
   onRemove,
   onReorder,
   onJump,
+  total,
+  page,
+  pageSize,
+  sort,
+  onSortChange,
+  onPageChange,
 }: Props) {
   const [addOpen, setAddOpen] = useState(false)
   const [addName, setAddName] = useState('')
@@ -70,6 +83,13 @@ export default function BookmarkPanel({
     ? previewIds.map((id) => byId.get(id)).filter((i): i is BookmarkDto => !!i)
     : items
 
+  // 三个条件缺一不可：
+  //  · 至少两条才有排序可言
+  //  · 非"拖动顺序"时顺序由排序决定，拖了也会被下一次 reload 覆盖
+  //  · 一页装不下时不能拖 —— 页内下标与全文档 sort_order 不是一回事，会跨页撞车
+  //    （useBookmarks.reorder 里也有同一道闸，这里是让控件如实反映）
+  const canDrag = items.length > 1 && sort === 'order' && total <= pageSize
+
   /** 按指针纵向位置算出目标下标，实时重排预览。全部读 ref，不读任何 state */
   function applyDragMoveAt(clientY: number) {
     const d = dragRef.current
@@ -103,8 +123,8 @@ export default function BookmarkPanel({
 
   /** 指针按下即进入拖动待命态，并把几何与顺序一次性快照下来 */
   function beginDrag(e: React.PointerEvent<HTMLButtonElement>, bookmarkId: string) {
-    // 只在书签多于 1 条时允许拖动
-    if (items.length < 2) return
+    // 顺序由排序决定、或一页装不下时都不许拖（原因见 canDrag 上方注释）
+    if (!canDrag) return
     if (dragRef.current) return // 多指：已有拖动在进行，忽略第二根手指
     const list = listRef.current
     if (!list) return
@@ -288,7 +308,7 @@ export default function BookmarkPanel({
             <button
               className="mark-act"
               title="上移"
-              disabled={index === 0}
+              disabled={index === 0 || !canDrag}
               onClick={() => moveBy(b.bookmarkId, -1)}
             >
               ↑
@@ -296,7 +316,7 @@ export default function BookmarkPanel({
             <button
               className="mark-act"
               title="下移"
-              disabled={index === shown.length - 1}
+              disabled={index === shown.length - 1 || !canDrag}
               onClick={() => moveBy(b.bookmarkId, 1)}
             >
               ↓
@@ -317,6 +337,40 @@ export default function BookmarkPanel({
           </div>
         ))}
       </div>
+
+      {total > 0 && (
+        <div className="marks-pager">
+          <select
+            className="input marks-sort"
+            value={sort}
+            onChange={(e) => onSortChange(e.target.value as 'order' | 'createdAt' | 'chapter')}
+          >
+            <option value="order">拖动顺序</option>
+            <option value="createdAt">创建时间</option>
+            <option value="chapter">所属章节</option>
+          </select>
+          <span className="muted">
+            第 {page} / {Math.max(1, Math.ceil(total / pageSize))} 页 · 共 {total} 条
+          </span>
+          <button
+            className="btn btn-ghost btn-sm"
+            disabled={page <= 1}
+            onClick={() => onPageChange(page - 1)}
+          >
+            上一页
+          </button>
+          <button
+            className="btn btn-ghost btn-sm"
+            disabled={page >= Math.ceil(total / pageSize)}
+            onClick={() => onPageChange(page + 1)}
+          >
+            下一页
+          </button>
+          {sort === 'order' && total > pageSize && (
+            <span className="muted">书签超过一页，暂不支持拖动排序</span>
+          )}
+        </div>
+      )}
     </aside>
   )
 }
