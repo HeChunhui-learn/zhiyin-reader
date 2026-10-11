@@ -34,6 +34,16 @@ export interface BookmarksApi {
   remove: (bookmarkId: string) => Promise<void>
   resolve: (conflict: ConflictEnvelope, choice: 'local' | 'remote' | 'both') => Promise<void>
   dismissConflicts: () => void
+  reorder: (orderedIds: string[]) => Promise<void>
+  total: number
+  page: number
+  setPage: (p: number) => void
+  /** 每页条数固定为 20（契约 §1 的默认值），界面只读 */
+  pageSize: number
+  sort: 'order' | 'createdAt' | 'chapter'
+  setSort: (s: 'order' | 'createdAt' | 'chapter') => void
+  /** 排序方向。界面用它翻转 asc/desc（noUnusedLocals 要求 state 的 setter 必须被用到） */
+  setOrder: (o: 'asc' | 'desc') => void
 }
 
 export function useBookmarks(docId: string, enabled: boolean): BookmarksApi {
@@ -41,20 +51,26 @@ export function useBookmarks(docId: string, enabled: boolean): BookmarksApi {
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState('')
   const [conflicts, setConflicts] = useState<ConflictEnvelope[]>([])
+  const [total, setTotal] = useState(0)
+  const [page, setPage] = useState(1)
+  const [pageSize] = useState(20)
+  const [sort, setSort] = useState<'order' | 'createdAt' | 'chapter'>('order')
+  const [order, setOrder] = useState<'asc' | 'desc'>('asc')
 
   const reload = useCallback(async () => {
     if (!enabled) return
     setLoading(true)
     try {
-      const res = await api.listBookmarks({ docId })
+      const res = await api.listBookmarksPaged({ docId, page, pageSize, sort, order })
       setItems(res.items.filter((i) => !i.deletedAt))
+      setTotal(res.total)
       setError('')
     } catch (e) {
       setError(e instanceof ApiError ? e.message : '读取书签失败')
     } finally {
       setLoading(false)
     }
-  }, [docId, enabled])
+  }, [docId, enabled, page, pageSize, sort, order])
 
   useEffect(() => {
     void reload()
@@ -83,12 +99,13 @@ export function useBookmarks(docId: string, enabled: boolean): BookmarksApi {
   )
 
   const add = useCallback(
-    async (anchor: Anchor, name: string) => {
+    async (anchor: Anchor, name: string, chapterTitle?: string | null) => {
       const payload = {
         bookmarkId: uuid(),
         docId,
         anchor,
         name,
+        chapterTitle: chapterTitle ?? null,
         updatedAt: new Date().toISOString(),
       }
       try {
@@ -116,6 +133,42 @@ export function useBookmarks(docId: string, enabled: boolean): BookmarksApi {
       }
     },
     [docId, reload, onConflict],
+  )
+
+  /**
+   * B1 拖动排序：**乐观更新**。
+   *
+   * 先本地重排立即渲染（拖完不许等网络），再发请求。
+   * 失败（含 409 整批回滚）就把顺序**回滚到服务端真值** —— reload() 会重新按
+   * sort_order 拉一遍，不留半吊子状态。错误提示放在 reload 之后设置，
+   * 否则 reload 成功会清空 error（R5 踩过的坑，见 CLAUDE.md 同步约定第 7 条）。
+   */
+  const reorder = useCallback(
+    async (orderedIds: string[]) => {
+      const byId = new Map(items.map((i) => [i.bookmarkId, i]))
+      const next = orderedIds.map((id) => byId.get(id)).filter((i): i is BookmarkDto => !!i)
+      if (next.length !== items.length) return
+
+      setItems(next.map((it, i) => ({ ...it, sortOrder: i })))
+      try {
+        await api.reorderBookmarks({
+          docId,
+          items: next.map((it, i) => ({
+            bookmarkId: it.bookmarkId,
+            sortOrder: i,
+            baseVersion: it.version,
+          })),
+          updatedAt: new Date().toISOString(),
+        })
+        await reload()
+        setError('')
+      } catch (e) {
+        const msg = e instanceof ApiError ? e.message : '调整顺序失败'
+        await reload()
+        setError(msg)
+      }
+    },
+    [items, docId, reload],
   )
 
   const rename = useCallback(
@@ -192,5 +245,13 @@ export function useBookmarks(docId: string, enabled: boolean): BookmarksApi {
     remove,
     resolve,
     dismissConflicts: () => setConflicts([]),
+    reorder,
+    total,
+    page,
+    setPage,
+    pageSize,
+    sort,
+    setSort,
+    setOrder,
   }
 }
