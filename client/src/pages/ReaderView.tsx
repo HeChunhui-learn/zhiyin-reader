@@ -106,6 +106,11 @@ export default function ReaderView() {
     (index: number, smooth = true) => {
       const root = rootRef.current
       if (!root) return
+      // 程序化跳转要同步刷新"当前段落"，不能只靠滚动事件的防抖回调 ——
+      // 那个 effect 的依赖里含 prog，而 useProgress 每次渲染都返回新对象，
+      // 于是每次渲染都会清掉待触发的定时器；跳转后没滚动的话 ref 会停在旧值，
+      // 紧接着加的书签就会拿到上一段的锚点、默认名与章节标题。
+      currentParaRef.current = index
       if (!virtual) {
         root
           .querySelector(`[data-para="${index}"]`)

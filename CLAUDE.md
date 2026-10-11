@@ -24,7 +24,8 @@
   （新增 `GET /api/bookmarks/overview`，「我的书签」已是真实页面）、书签默认名改为
   「章节标题 + 首句片段」（新增 `T_Bookmark.chapter_title`，做法一）。
   **新列需 `npm run db:reset && npm run seed` 重建**。`sort_order` 的合并规则与角色 A 约定为
-  `superseded`，登记在 `docs/迭代登记-B.md`。
+  `superseded`，登记在 `docs/迭代登记-B.md`。已知限制见
+  `docs/superpowers/specs/2026-10-11-role-B-bookmark-design.md` 的「已知限制（角色 B 迭代）」。
 
 **六轮全部完成，252 项断言全绿。剩下的是人力活，不是开发活**：
 在真机上核一遍（尤其窗口化滚动的观感）、把使用说明书打印出来、补 Kokoro 的实机验证。
@@ -111,7 +112,7 @@ cd client && npm install && npm run dev                       # 5173
   `keep_both` 之后要"二选一"必须知道另一条是谁（材料审查 A25 的模糊点）。客户端从 `conflict.resolved.bookmarkId` 取
 - **`POST /api/sync` 每次请求都整体比较所有书签**，书签很多时会慢（没做真正的增量游标）
 - 冲突列表只在本次会话内存里，刷新页面后靠 `T_SyncRecord` 里的记录，但界面还没把它读回来
-- 书签只做了增删改查，没做**拖动排序**与**跨文档的书签总览**（书架里的"我的书签"分类仍是空页）
+- 书签已补齐增删改查之外的**拖动排序**与**跨文档的书签总览**（角色 B 迭代已完成，见上方进度条目）
 - 暂停是"停掉当前句"，不是"从句子中间继续" —— 恢复时该句从头念。真暂停要在引擎里保留位置，收益不大，先不做
 - 语速改变会让当前句从头重念（`rate` 在播放循环的依赖里）
 - `PATCH /api/users/me`（改昵称/改密码）未实现

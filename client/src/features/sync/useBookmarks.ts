@@ -168,7 +168,6 @@ export function useBookmarks(docId: string, enabled: boolean): BookmarksApi {
           updatedAt: new Date().toISOString(),
         })
         await reload()
-        setError('')
       } catch (e) {
         const msg = e instanceof ApiError ? e.message : '调整顺序失败'
         await reload()

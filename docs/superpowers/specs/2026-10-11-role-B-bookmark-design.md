@@ -133,7 +133,10 @@ cd server && npm run db:reset && npm run seed
 
 `409 SYNC_VERSION_CONFLICT`：任一条 `baseVersion` 不匹配 → **整体回滚，一条都不落库**，`details.conflict.key` 指出是哪条书签。
 
-`400 VALIDATION_FAILED`：`items` 为空、`items` 中存在重复 `bookmarkId`、或书签不属于该 `docId` / 该用户。
+`400 VALIDATION_FAILED`：`items` 为空、`items` 中存在重复 `bookmarkId`、`sortOrder` 不是整数、缺少 `baseVersion`、缺少 `docId`。
+
+`404 NOT_FOUND`：书签不存在、或不属于当前用户，或不属于给定的 `docId`（`docId` 不匹配与用户不匹配同属一个分支）。
+按本文件 §7.2 / §7.3 既有的约定——`!existing || existing.user_id !== userId` 一律返回 `404`，"不是你的东西"以 404 作答更稳妥。
 
 ### 4.2 `GET /api/bookmarks/page`（新增，B3）
 
@@ -395,3 +398,16 @@ cd server && npm run db:reset && npm run seed
 | 加列后旧库读不到新列 | 明确迁移路径 `npm run db:reset && npm run seed`；写入提交信息与登记 |
 | 触碰 `sync/service.ts` 的 `bookmarkToDto` | 本轮**不改**该文件；列表 DTO 在 `routes/bookmarks.ts` 内本地实现 |
 | `?para=` 定位与"恢复到上次阅读位置"打架 | `?para=` 优先级更高，用 ref 保证只跳一次，之后不再干预滚动 |
+
+---
+
+## 13. 已知限制（角色 B 迭代）
+
+- **书签超过一页（>20 条）时禁用拖动排序。** 页内下标与全文档 `sort_order` 不是一回事，
+  跨页拖动会撞车；`BookmarkPanel` 与 `useBookmarks.reorder` 各有一道闸，超限时界面给出提示。
+  演示拖动请在 ≤1 页的文档上做（如《人间词话》）。
+- **「所属章节」按字符串比较排序**，中文数字下第三章会排在第二章之前
+  （任务书只要求"支持按章节排序"，未规定次序）。彻底修需要一个"章节序数"，
+  而该数据不存在（做法二已被否决）。
+- **`bookmarkListDto`（`routes/bookmarks.ts`）与 `bookmarkToDto`（`sync/service.ts`）字段重叠**，
+  后者在禁区不能改，前者新增字段时需同步检查两边，存在漂移风险。
