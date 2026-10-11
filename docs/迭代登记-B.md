@@ -12,7 +12,11 @@
 
 | 日期 | 角色 | 接口 | 变更 | 兼容性 |
 |---|---|---|---|---|
-| （后续任务逐行追加） | | | | |
+| 2026-10-11 | B | `POST /api/bookmarks/reorder` | **新增**：拖动排序整表重排，一个事务全成功或全失败 | 新增接口，不影响老调用方 |
+| 2026-10-11 | B | `GET /api/bookmarks/page` | **新增**：分页列表，`sort` 支持 order/createdAt/chapter | 新增接口；§7.4 的 `GET /api/bookmarks` 未改动 |
+| 2026-10-11 | B | `GET /api/bookmarks/overview` | **新增**：跨文档书签总览，按文档分组 | 新增接口 |
+| 2026-10-11 | B | `POST /api/bookmarks` | 请求体新增可选 `chapterTitle`、`sortOrder`；响应新增 `sortOrder`、`chapterTitle` | **向后兼容**（新增字段，旧调用方不传仍可用） |
+| 2026-10-11 | B | `GET /api/bookmarks`（§7.4） | 仅补文档说明"只服务增量同步" | **无结构变化** |
 
 ## 与角色 A 的约定（sort_order 合并规则）
 
