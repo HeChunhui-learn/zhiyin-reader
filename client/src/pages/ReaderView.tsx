@@ -6,7 +6,7 @@ import { splitSentences, type Sentence } from '../features/readalong/splitSenten
 import { useReadAlong } from '../features/readalong/useReadAlong'
 import { useProgress } from '../features/sync/useProgress'
 import { useBookmarks } from '../features/sync/useBookmarks'
-import { anchorAt, clampToParagraphs, type Anchor } from '../features/sync/anchor'
+import { anchorAt, clampToParagraphs } from '../features/sync/anchor'
 import {
   buildGeometry,
   computeWindow,
@@ -254,11 +254,14 @@ export default function ReaderView() {
     [paragraphs, book],
   )
 
-  /** 首句片段：取锚点段落切分后的第一句，超过 20 字截断 */
+  /** 首句片段：取锚点段落切分后的第一句，去掉句末标点，超过 20 字截断 */
   const firstSentenceOf = useCallback(
     (paraIndex: number): string => {
-      const s = (byPara.get(paraIndex) ?? [])[0]?.text ?? paragraphs[paraIndex]?.text ?? ''
-      return s.length > 20 ? `${s.slice(0, 20)}…` : s
+      const raw = (byPara.get(paraIndex) ?? [])[0]?.text ?? paragraphs[paraIndex]?.text ?? ''
+      // 去掉句末标点：默认名是「章节标题 · 首句片段」这种复合名，末尾再挂一个句号读着别扭，
+      // 也与任务书 B4 给出的示例形式一致（任务书示例没有句号）
+      const trimmed = raw.replace(/[。．.！!？?；;…]+$/, '')
+      return trimmed.length > 20 ? `${trimmed.slice(0, 20)}…` : trimmed
     },
     [byPara, paragraphs],
   )
@@ -270,17 +273,6 @@ export default function ReaderView() {
     },
     [chapterTitleFor, firstSentenceOf],
   )
-
-  /**
-   * useBookmarks 的实现早就收第三个参数 chapterTitle 了，但导出的 `BookmarksApi`
-   * 接口漏声明了它；useBookmarks.ts 不在本任务的可改范围内，这里就地放宽一次签名，
-   * 好把「所属章节」一并提交落库（纯类型断言，运行时行为不变）。
-   */
-  const bmsAdd = bms.add as (
-    anchor: Anchor,
-    name: string,
-    chapterTitle?: string | null,
-  ) => Promise<void>
 
   if (!ready || !user || loading) {
     return <div className="reader-page"><div className="shelf-empty">正在加载正文…</div></div>
@@ -355,7 +347,7 @@ export default function ReaderView() {
             defaultAddName={defaultNameFor(currentParaRef.current)}
             onAdd={(name) => {
               const idx = currentParaRef.current
-              void bmsAdd(
+              void bms.add(
                 anchorAt(idx, ra.cursor),
                 name || defaultNameFor(idx),
                 chapterTitleFor(idx),

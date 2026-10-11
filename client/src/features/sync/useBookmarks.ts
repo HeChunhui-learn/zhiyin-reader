@@ -29,7 +29,7 @@ export interface BookmarksApi {
   /** 本次会话中遇到的冲突（服务端已经按 §8.5 自动落库，界面用于告知与清理） */
   conflicts: ConflictEnvelope[]
   reload: () => Promise<void>
-  add: (anchor: Anchor, name: string) => Promise<void>
+  add: (anchor: Anchor, name: string, chapterTitle?: string | null) => Promise<void>
   rename: (bookmarkId: string, name: string) => Promise<void>
   remove: (bookmarkId: string) => Promise<void>
   resolve: (conflict: ConflictEnvelope, choice: 'local' | 'remote' | 'both') => Promise<void>
