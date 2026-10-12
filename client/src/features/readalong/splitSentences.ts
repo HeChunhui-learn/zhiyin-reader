@@ -9,7 +9,7 @@
  *   R6 段内换行、制表符、连续空白归一为单个空格
  *   R7 切分前剔除零宽字符与首尾空白，偏移量以归一化后的文本为准
  *   R8 单句超过 200 字时在最近的 ，/、 处强制切分，无标点则硬切
- *   R9 空句不入表
+ *   R9 纯空白、纯标点、长度为零的片段一律不入表
  *   R10 纯函数：同一输入重复切分结果逐字节相同
  *
  * ── C1 定下的四个决定（规范留白，摊在这里备查，另见提交信息）──
@@ -29,6 +29,22 @@
  *
  * 4. 切分规则变更视为"内容升级"：旧文档的句子表不会自动重建
  *    （导入按 content_hash 去重），详见提交信息。
+ *
+ * ── 事后补的两处修正（材料审查）──
+ *
+ * 5. **偏移量与文本必须一致**：`emit` 原先只对文本 trim、不动偏移量，
+ *    凡「句末边界后紧跟一个空格」，下一句的 `text` 与
+ *    `s.slice(startOffset, endOffset)` 就差一个前导空格。
+ *    实测一本真实英文句 "The end. Next one." 第二句区间切出来是 " Next one."。
+ *    现在改成先把区间收窄到非空白再取文本。
+ *
+ * 6. **R9 原先只挡了空片段**（`if (!text) return`），纯标点片段照收。
+ *    真实网文里 `------------` 分隔线、对话里的 `……` 都会被当成合法句子，
+ *    跟读会停下来"念"它们。现在按"无字母、无数字、无表意文字"丢弃。
+ *
+ *    代价：正文渲染取的是句子的 text（ReaderView 里按句子铺 span），
+ *    所以被丢弃的纯标点片段**在页面上也不再显示**。当前两份种子文档没有
+ *    这类片段，不受影响；网文里的分隔线会变成空行。
  */
 
 export interface Sentence {
@@ -56,6 +72,9 @@ const WHITESPACE = /[\s　]+/g
 export const MAX_SENTENCE_LEN = 200
 /** R8 硬切时认可的回溯标点 */
 const SOFT_BREAK = new Set(['，', '、'])
+
+/** R9 判定"这句话有没有实际内容"：字母、数字、表意文字都算，纯标点不算 */
+const HAS_WORD = /[\p{L}\p{N}]/u
 
 /**
  * R5 缩写白名单（比较时统一转小写、含点号）。
@@ -105,7 +124,15 @@ export function normalize(text: string): string {
   return text.replace(ZERO_WIDTH, '').replace(WHITESPACE, ' ').trim()
 }
 
-/** 追加一个句子。R9：空句不入表 */
+/**
+ * 追加一个句子。R9：纯空白、纯标点、长度为零的片段一律不入表。
+ *
+ * 区间必须**先收窄到非空白再取文本**。调用方给的 [start, end) 是
+ * 「上一句边界之后」到「本句边界」，中间那段空白会落在区间里。
+ * 只 trim 文本、不动偏移量的话，`text` 与 `s.slice(startOffset, endOffset)`
+ * 就对不上（英文正文里句号后面跟一个空格，几乎句句如此），
+ * 锚点的 charOffset 与高亮范围都会偏一位。两者必须逐字节一致。
+ */
 function emit(
   out: Omit<Sentence, 'sentenceIndex'>[],
   s: string,
@@ -113,9 +140,18 @@ function emit(
   end: number,
   paraIndex: number,
 ): void {
-  const text = s.slice(start, end).trim()
-  if (!text) return
-  out.push({ paraIndex, startOffset: start, endOffset: end, text })
+  let a = start
+  let b = end
+  while (a < b && s[a] === ' ') a++
+  while (b > a && s[b - 1] === ' ') b--
+  if (a >= b) return
+
+  const text = s.slice(a, b)
+  // R9：纯标点不入表。网文里的 "------------" 分隔线、对话里的 "……" 都属于这一类，
+  // 留着的话跟读会停下来"念"它们、高亮也会停在上面。
+  if (!HAS_WORD.test(text)) return
+
+  out.push({ paraIndex, startOffset: a, endOffset: b, text })
 }
 
 /** R8：把 [start, end) 按 200 字上限切开后逐段追加 */
