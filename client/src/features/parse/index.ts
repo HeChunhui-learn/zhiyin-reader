@@ -1,5 +1,6 @@
 import type { ImportPayload } from '../../api/client'
 import { speaksInReadAlong, splitParagraph } from '../readalong/splitSentences'
+import { decodeFileText, encodingNote, type DecodedText } from './decode'
 import { parseEpub } from './epub'
 import { parseMarkdown } from './markdown'
 import { parseTxt } from './txt'
@@ -64,14 +65,17 @@ export async function parseFile(file: File): Promise<ParseOutcome> {
 
   let result: ParseResult
   let imageBlobs: Map<string, Blob> | undefined
+  /** 文本类文件的解码结果；EPUB 走 zip，不做编码探测 */
+  let decoded: DecodedText | null = null
 
   if (format === 'EPUB') {
     const epub = await parseEpub(file)
     result = epub
     imageBlobs = epub.imageBlobs
   } else {
-    const raw = await file.text()
-    result = format === 'MD' ? parseMarkdown(raw, file.name) : parseTxt(raw, file.name)
+    // 不能用 file.text()：它只按 UTF-8 解，GBK 中文 TXT 会整本变成乱码且不报错
+    decoded = await decodeFileText(file)
+    result = format === 'MD' ? parseMarkdown(decoded.text, file.name) : parseTxt(decoded.text, file.name)
   }
 
   if (result.paragraphs.length === 0) {
@@ -107,12 +111,14 @@ export async function parseFile(file: File): Promise<ParseOutcome> {
 
   const sentenceCount = payload.paragraphs.reduce((n, p) => n + p.sentences.length, 0)
   const imagePart = result.imageRefs.length ? ` · ${result.imageRefs.length} 图` : ''
+  const encPart = decoded ? encodingNote(decoded) : ''
   const notes = sanityNotes(result.paragraphs)
   const notePart = notes.length ? ` · ⚠ ${notes.join('；')}` : ''
 
   return {
     payload,
-    summary: `${payload.paragraphs.length} 段 · ${sentenceCount} 句${imagePart} · ${format}${notePart}`,
+    // 编码说明在前、自查告警在后：两处是各自独立加的，都要带上
+    summary: `${payload.paragraphs.length} 段 · ${sentenceCount} 句${imagePart} · ${format}${encPart}${notePart}`,
     imageBlobs,
   }
 }
