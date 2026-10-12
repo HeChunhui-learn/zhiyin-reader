@@ -1,5 +1,5 @@
 import type { ImportPayload } from '../../api/client'
-import { splitParagraph } from '../readalong/splitSentences'
+import { speaksInReadAlong, splitParagraph } from '../readalong/splitSentences'
 import { decodeFileText, encodingNote, type DecodedText } from './decode'
 import { parseEpub } from './epub'
 import { parseMarkdown } from './markdown'
@@ -73,12 +73,16 @@ export async function parseFile(file: File): Promise<ParseOutcome> {
       paraIndex: p.paraIndex,
       type: p.type,
       text: p.text,
-      // 句子也由前端切分，随段落一并上传（契约 §4.1）
-      sentences: splitParagraph(p.text, p.paraIndex).map((s, k) => ({
-        sentenceIndex: k,
-        startOffset: s.startOffset,
-        endOffset: s.endOffset,
-      })),
+      // 句子也由前端切分，随段落一并上传（契约 §4.1）。
+      // 只切"参与跟读"的段落 —— 与阅读器 splitSentences 同一口径，
+      // 否则库里会存下阅读器永远用不到的句子（见 speaksInReadAlong 的注释）。
+      sentences: speaksInReadAlong(p.type)
+        ? splitParagraph(p.text, p.paraIndex).map((s, k) => ({
+            sentenceIndex: k,
+            startOffset: s.startOffset,
+            endOffset: s.endOffset,
+          }))
+        : [],
     })),
     imageRefs: result.imageRefs,
   }
@@ -86,12 +90,36 @@ export async function parseFile(file: File): Promise<ParseOutcome> {
   const sentenceCount = payload.paragraphs.reduce((n, p) => n + p.sentences.length, 0)
   const imagePart = result.imageRefs.length ? ` · ${result.imageRefs.length} 图` : ''
   const encPart = decoded ? encodingNote(decoded) : ''
+  const notes = sanityNotes(result.paragraphs)
+  const notePart = notes.length ? ` · ⚠ ${notes.join('；')}` : ''
 
   return {
     payload,
-    summary: `${payload.paragraphs.length} 段 · ${sentenceCount} 句${imagePart} · ${format}${encPart}`,
+    summary: `${payload.paragraphs.length} 段 · ${sentenceCount} 句${imagePart} · ${format}${encPart}${notePart}`,
     imageBlobs,
   }
+}
+
+/** 标题段的合理长度上限。真实的章节名很少超过这个数 */
+const LONG_HEADING = 120
+
+/**
+ * 解析结果的自查。
+ *
+ * parseTxt 只在「格式不支持」和「段落数为 0」时抛错，别的一律静默返回 ——
+ * 一份把整章误判成标题的文件照样导入成功，界面上一条提示都没有。
+ * 这里挑几个明显不合理的形态兜个底，把话写进导入回执，
+ * 免得读者对着一本读不了的书找不到原因（静默解析错比抛异常难查得多）。
+ */
+function sanityNotes(paragraphs: ParseResult['paragraphs']): string[] {
+  const notes: string[] = []
+
+  const longHeadings = paragraphs.filter(
+    (p) => (p.type === 'h1' || p.type === 'h2') && p.text.length > LONG_HEADING,
+  ).length
+  if (longHeadings > 0) notes.push(`${longHeadings} 个标题异常偏长，可能识别有误`)
+
+  return notes
 }
 
 /**

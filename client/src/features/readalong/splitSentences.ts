@@ -208,6 +208,18 @@ export function splitParagraph(
   return out
 }
 
+/**
+ * 这一段参不参与跟读。
+ *
+ * 标题（h1/h2）与图片段不跟读。这条口径**必须**由导入侧和阅读侧共用：
+ * 导入时按它决定要不要切句存表，阅读时按它决定要不要铺句子。
+ * 两边各写一套的话，库里会存下阅读器永远用不到的句子 —— 实测一本把整章误判成
+ * 标题的书，入库 117,423 句，阅读器只用得上 21 句。
+ */
+export function speaksInReadAlong(type: string): boolean {
+  return type !== 'h1' && type !== 'h2' && type !== 'img'
+}
+
 /** 切分整篇文档，编号全局句序 */
 export function splitSentences(
   paragraphs: { paraIndex: number; type: string; text: string }[],
@@ -215,7 +227,7 @@ export function splitSentences(
   const all: Sentence[] = []
   for (const p of paragraphs) {
     // 标题与图片不参与跟读
-    if (p.type === 'h1' || p.type === 'h2' || p.type === 'img') continue
+    if (!speaksInReadAlong(p.type)) continue
     for (const s of splitParagraph(p.text, p.paraIndex)) {
       all.push({ ...s, sentenceIndex: all.length })
     }
