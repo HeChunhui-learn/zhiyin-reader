@@ -599,14 +599,22 @@ button {
   background: rgba(18, 22, 28, 0.86);
   text-align: center;
   letter-spacing: 0;
+  overflow: hidden;            /* 内容再长也不许溢出，否则按钮会被挤出可视区 */
 }
 
+/* 书名必须钳成一行：书名可能是解析坏掉的一整章（实测 2519 字），
+   那样这行会把确认层的按钮顶到屏幕外，反而删不掉这本书 */
 .book-del-ask {
+  max-width: 100%;
   font-size: 14px;
   font-weight: 600;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 .book-del-note {
+  max-width: 100%;
   font-size: 12px;
   line-height: 1.5;
   color: rgba(255, 255, 255, 0.72);

@@ -29,6 +29,16 @@ function coverColorFor(docId: string): string {
   return COVER_COLORS[h % COVER_COLORS.length]
 }
 
+/**
+ * 书名钳短，只用在回执这类提示语里。
+ *
+ * 书名是数据，可能长得离谱 —— 解析坏掉的 TXT（整章被误判成标题）书名能有两千多字，
+ * 直接塞进提示语会刷屏。卡片和确认层各有自己的钳法（CSS 省略号 / 截断），这里只管提示语。
+ */
+function shortTitle(title: string, max = 20): string {
+  return title.length > max ? `${title.slice(0, max)}…` : title
+}
+
 export default function LibraryView() {
   const [nav, setNav] = useState<NavKey>('all')
   const [keyword, setKeyword] = useState('')
@@ -93,18 +103,19 @@ export default function LibraryView() {
    * 为了删一本书丢掉整个书架不值得，这里只在顶部给一条回执。
    */
   async function onDeleteBook(docId: string, title: string) {
+    const shown = shortTitle(title)
     setDeleting(docId)
     setNotice(null)
     try {
       await api.deleteDocument(docId)
       setPendingDelete(null)
-      setNotice({ kind: 'done', text: `已删除《${title}》，正文、书签与阅读进度一并清除。` })
+      setNotice({ kind: 'done', text: `已删除《${shown}》，正文、书签与阅读进度一并清除。` })
       await load()
     } catch (e) {
       setPendingDelete(null)
       setNotice({
         kind: 'failed',
-        text: e instanceof ApiError ? e.message : `删除《${title}》失败，请稍后重试。`,
+        text: e instanceof ApiError ? e.message : `删除《${shown}》失败，请稍后重试。`,
       })
     } finally {
       setDeleting(null)
