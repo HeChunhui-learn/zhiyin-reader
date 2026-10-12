@@ -307,32 +307,93 @@ button {
   height: 100%;
 }
 
+/*
+ * 左栏：品牌与写意山水。
+ * 底色从纯蓝改成偏墨的蓝 —— 白墨画在上面才像水墨，纯亮蓝会显得像贴图。
+ * 两层径向渐变当宣纸的晕染，不用图片。
+ */
 .login-brand {
+  position: relative;
   display: flex;
   flex-direction: column;
   justify-content: center;
-  padding: 0 72px;
-  background: linear-gradient(150deg, #2f6fed, #1d3f8f);
+  padding: 0 64px;
+  overflow: hidden;
   color: #fff;
+  background:
+    radial-gradient(1100px 520px at 18% -10%, rgba(255, 255, 255, 0.14), transparent 62%),
+    radial-gradient(760px 420px at 96% 108%, rgba(255, 255, 255, 0.1), transparent 60%),
+    linear-gradient(155deg, #23407f 0%, #1a2f63 46%, #101f45 100%);
+}
+
+/* 细横纹，凑一点纸的质感 */
+.login-brand::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  opacity: 0.35;
+  background-image: repeating-linear-gradient(
+    0deg,
+    rgba(255, 255, 255, 0.05) 0 1px,
+    transparent 1px 4px
+  );
+}
+
+.login-brand > * {
+  position: relative;
+  z-index: 1;
+}
+
+.login-brand-head {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+}
+
+.app-logo {
+  display: block;
+  flex: none;
+  border-radius: 13px;
+  box-shadow: 0 6px 18px rgba(6, 16, 40, 0.35);
 }
 
 .login-brand-logo {
-  font-size: 34px;
-  letter-spacing: 3px;
+  font-size: 32px;
+  letter-spacing: 4px;
+  font-weight: 600;
 }
 
+.login-brand-sub {
+  margin: 6px 0 0;
+  font-size: 12px;
+  letter-spacing: 1px;
+  color: rgba(255, 255, 255, 0.62);
+}
+
+/* 主标语：这是整块的主角，给足字号与字距 */
 .login-brand-slogan {
-  margin: 14px 0 0;
-  font-size: 15px;
-  opacity: 0.85;
+  margin: 42px 0 0;
+  font-size: 40px;
+  font-weight: 600;
+  letter-spacing: 10px;
+  text-shadow: 0 2px 18px rgba(6, 16, 40, 0.45);
 }
 
-.login-brand-figure {
-  width: 210px;
-  height: 130px;
-  margin-top: 40px;
-  border-radius: 12px;
-  background: rgba(255, 255, 255, 0.14);
+.login-brand-slogan-note {
+  margin: 14px 0 0;
+  font-size: 13px;
+  letter-spacing: 4px;
+  color: rgba(255, 255, 255, 0.6);
+}
+
+/*
+ * 画面是白墨，直接化进底色里，不加边框也不加投影 ——
+ * 加 drop-shadow 会把整幅的外接轮廓描出来，看起来就像一张贴上去的图。
+ */
+.ink-landscape {
+  display: block;
+  margin-top: 28px;
 }
 
 .login-panel {
@@ -462,8 +523,15 @@ button {
 }
 
 .shelf-user {
+  display: flex;
+  align-items: center;
+  gap: 12px;
   margin-left: auto;
   color: var(--muted);
+}
+
+.shelf-user-name {
+  font-size: 13px;
 }
 
 .shelf-body {
@@ -639,16 +707,21 @@ button {
   user-select: none;
 }
 
+/* 右上角的圆形头像按钮：点它进个人主页 */
 .shelf-avatar {
+  display: block;
   padding: 0;
   border: none;
   border-radius: 50%;
   background: none;
   line-height: 0;
   flex: none;
+  cursor: pointer;
+  transition: box-shadow 0.15s;
 }
 
-.shelf-avatar:hover {
+.shelf-avatar:hover,
+.shelf-avatar:focus-visible {
   box-shadow: 0 0 0 2px var(--primary);
 }
 

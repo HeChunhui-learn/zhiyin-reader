@@ -210,15 +210,6 @@ export default function LibraryView() {
   return (
     <div className="shelf-page">
       <header className="shelf-topbar">
-        {/* 左上角头像：进个人主页 */}
-        <button
-          className="shelf-avatar"
-          title="个人主页"
-          aria-label="个人主页"
-          onClick={() => navigate('/profile')}
-        >
-          <UserAvatar avatarUrl={user.avatarUrl} name={user.nickname || user.account} size={32} />
-        </button>
         <div className="shelf-brand">知音漫卷</div>
         <input
           className="input shelf-search"
@@ -237,7 +228,16 @@ export default function LibraryView() {
           onChange={onPickFile}
         />
         <div className="shelf-user">
-          <span>{user.nickname}</span>
+          {/* 右上角的圆形头像：点它进个人主页 */}
+          <button
+            className="shelf-avatar"
+            title="个人主页"
+            aria-label="个人主页"
+            onClick={() => navigate('/profile')}
+          >
+            <UserAvatar avatarUrl={user.avatarUrl} name={user.nickname || user.account} size={34} />
+          </button>
+          <span className="shelf-user-name">{user.nickname}</span>
           <button
             className="btn btn-ghost btn-sm"
             onClick={async () => {

@@ -15,16 +15,42 @@ import { makeSalt, hashPassword } from '../src/auth/password'
 import { dal, newId, now } from '../src/dao'
 import { closeDb, getDb, initDb, isEmpty, SERVER_ROOT } from '../src/db'
 
-/** 演示账号的默认头像：96×96 的品牌色圆点，433 字节的 PNG，直接嵌在源码里 */
+/**
+ * 演示账号的默认头像：128×128，品牌蓝的圆底上一重山一道水，与 features/brand/AppLogo 同源。
+ * 2.1KB 的 PNG 直接嵌在源码里 —— 种子脚本要能在任何机器上跑出同样的结果，
+ * 外挂一个图片文件就多一处"文件没跟着走"的可能。
+ */
 const DEMO_AVATAR_PNG_B64 =
-  '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'
+  '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'
 
 const DEMO_USER_ID = 'u_demo'
 /** 演示账号的密码。写在这里是为了让"跑完 seed 就能登录进去看演示书" */
