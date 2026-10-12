@@ -32,6 +32,7 @@ function toListItem(
   userId: string,
   d: DocumentRow,
   paragraphCount: number,
+  favorites: Set<string>,
 ) {
   // 契约 §4.4：progress 取该用户在该文档上最近更新的一条设备记录。
   // 「不回退保护」是客户端恢复时的事（要跟本机已读位置比），列表这里给最新的就够。
@@ -50,6 +51,7 @@ function toListItem(
     // 封面要等 R3 抽取图片之后才有，先给 null
     coverImageId: null,
     paragraphCount,
+    isFavorite: favorites.has(d.doc_id),
     progress: latest
       ? {
           paragraphIndex: latest.paragraph_index,
@@ -79,11 +81,14 @@ export default async function documentRoutes(app: FastifyInstance) {
       pageSize,
     })
 
+    // 收藏标记一次取全，别在 map 里逐条查
+    const favorites = dal.listFavoriteDocIds(userId)
+
     return {
       total,
       page,
       pageSize,
-      items: rows.map((d) => toListItem(userId, d, dal.countParagraphs(d.doc_id))),
+      items: rows.map((d) => toListItem(userId, d, dal.countParagraphs(d.doc_id), favorites)),
     }
   })
 
@@ -263,6 +268,39 @@ export default async function documentRoutes(app: FastifyInstance) {
       if (doc.owner_id !== userId) throw E.forbiddenNotOwner()
       dal.deleteDocument(doc.doc_id)
       return reply.code(204).send()
+    },
+  )
+
+  /* ---------------------------------------- 收藏（R7-4） */
+  /*
+   * 两个动词都做成**幂等**的：重复收藏、重复取消都返回 200，
+   * 不报 409 也不带版本号 —— 收藏没有冲突语义，别把它拖进 §8 那套版本机制。
+   * 前端乐观更新失败回滚时，重发一次不会出岔子。
+   */
+
+  app.put<{ Params: { docId: string } }>(
+    '/api/documents/:docId/favorite',
+    async (req) => {
+      const userId = requireUserId(req)
+      const doc = dal.getDocumentById(req.params.docId)
+      if (!doc) throw E.notFound()
+      if (doc.owner_id !== userId) throw E.forbiddenNotOwner()
+
+      dal.addFavorite(userId, doc.doc_id, now())
+      return { docId: doc.doc_id, isFavorite: true }
+    },
+  )
+
+  app.delete<{ Params: { docId: string } }>(
+    '/api/documents/:docId/favorite',
+    async (req) => {
+      const userId = requireUserId(req)
+      const doc = dal.getDocumentById(req.params.docId)
+      if (!doc) throw E.notFound()
+      if (doc.owner_id !== userId) throw E.forbiddenNotOwner()
+
+      dal.removeFavorite(userId, doc.doc_id)
+      return { docId: doc.doc_id, isFavorite: false }
     },
   )
 }

@@ -1,7 +1,7 @@
 import type { FastifyInstance } from 'fastify'
 import { requireUserId } from '../auth/require'
 import { ApiError, E } from '../errors'
-import { listEngines, synthesize } from '../tts'
+import { listEngines, listVoices, synthesize } from '../tts'
 
 /**
  * 契约 §9：TTS 代理。
@@ -27,6 +27,18 @@ export default async function ttsRoutes(app: FastifyInstance) {
   app.get('/api/tts/engines', async (req) => {
     requireUserId(req)
     return listEngines()
+  })
+
+  /**
+   * 音色目录（契约 §9.4，本轮新增）。
+   *
+   * 与 §9.1 的 engines 分开，是因为两者的语义不同：engines 回答"有哪些引擎能用"，
+   * 这里回答"这个引擎有哪些音色、本机装了哪些"。§9.1 的响应结构已经定形，
+   * 平行分支还在用，所以不往里面塞东西。
+   */
+  app.get('/api/tts/voices', async (req) => {
+    requireUserId(req)
+    return listVoices()
   })
 
   app.post<{ Body: SynthBody }>('/api/tts/synthesize', async (req, reply) => {

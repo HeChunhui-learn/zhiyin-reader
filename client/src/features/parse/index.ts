@@ -32,11 +32,33 @@ export interface ParseOutcome {
  *
  * CLAUDE.md 裁决 1：解析全部在前端做，服务端只负责存储与分发。
  */
+/**
+ * 单个文件的大小上限，与服务端的 bodyLimit（index.ts 的 BODY_LIMIT）对齐。
+ *
+ * 在**读文件之前**就拦下来：超限的文件读进内存再失败，白等半天还占一份内存，
+ * 而且那时的报错来自服务端的 413，读者看到的是"上传内容超过大小限制"，
+ * 不知道到底是哪个文件、超了多少。
+ */
+export const MAX_FILE_BYTES = 100 * 1024 * 1024
+
+export function formatBytes(n: number): string {
+  if (n >= 1024 * 1024 * 1024) return `${(n / 1024 / 1024 / 1024).toFixed(1)}GB`
+  if (n >= 1024 * 1024) return `${(n / 1024 / 1024).toFixed(1)}MB`
+  if (n >= 1024) return `${(n / 1024).toFixed(0)}KB`
+  return `${n}B`
+}
+
 export async function parseFile(file: File): Promise<ParseOutcome> {
   const format = formatOf(file.name)
   if (!format) {
     throw new Error(
       `不支持的文件格式：${file.name}。请选择 EPUB、TXT 或 Markdown 文件。`,
+    )
+  }
+
+  if (file.size > MAX_FILE_BYTES) {
+    throw new Error(
+      `「${file.name}」有 ${formatBytes(file.size)}，超过了 ${formatBytes(MAX_FILE_BYTES)} 的上限，没有导入。`,
     )
   }
 

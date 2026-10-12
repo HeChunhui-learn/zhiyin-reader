@@ -156,6 +156,7 @@ export default async function authRoutes(app: FastifyInstance) {
         userId: fresh.user_id,
         account: fresh.account,
         nickname: fresh.nickname,
+        avatarUrl: dal.getUserProfile(fresh.user_id)?.avatar_url ?? null,
         createdAt: fresh.created_at,
         lastLogin: fresh.last_login,
       }
@@ -171,6 +172,9 @@ export default async function authRoutes(app: FastifyInstance) {
       userId: user.user_id,
       account: user.account,
       nickname: user.nickname,
+      // 头像单独一张表（见 schema.sql 的 T_UserProfile）：
+      // 这里是"有没有头像"，图片本体要另走 GET /api/users/me/avatar
+      avatarUrl: dal.getUserProfile(user.user_id)?.avatar_url ?? null,
       createdAt: user.created_at,
       lastLogin: user.last_login,
     }

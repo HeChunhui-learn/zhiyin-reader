@@ -19,6 +19,31 @@
 - **R4 已完成**：逐句跟读接真实 TTS —— 服务端代理本地 Kokoro（OpenAI 兼容）、服务端与客户端两级缓存、预加载、队列限流；不可用时自动降级为浏览器原生。游标由**真实的播放结束事件**驱动（不再有定时器）。
 - **R5 已完成**：跨设备同步与冲突处理 —— 阅读进度按设备分行、版本号条件更新、书签增删改查与软删除墓碑、批量增量同步、冲突检测与「两份都保留」、用户裁决、离线待同步队列。
 - **R6 已完成**：长文档窗口化渲染（500 段只渲染 25~38 个节点）；导入时上传原始文件；书架分类接真实数据；改昵称/改密码；一键启动脚本 `start.bat`；三份交付物文档在 `docs/`。
+- **R7 进行中**（阅读体验与个人化，分五步做，每步停下验证）：
+  - R7-1 已完成：朗读音色可选 —— 服务端新增音色目录 `server/src/tts/voiceCatalog.ts` 与
+    `GET /api/tts/voices`（契约 §9.4），已装的标可选、没装的置灰并说明「需安装离线音色包」；
+    前端音色下拉按语言分组，并把引擎/音色/语速记进 localStorage `zhiyin.readAlongPrefs`。
+  - R7-2 已完成：目录改侧边抽屉（覆盖式，不推开正文）＋当前章节高亮
+    （滚动回调里做变化检测闸门，只在跨章时 setState，避免 500 段文档每 16ms 重渲染）；
+    书签默认名改为「锚点位置正文的前 10 个字」，规则抽成纯函数
+    `client/src/features/sync/bookmarkName.ts`。
+  - R7-3 已完成：阅读设置面板（白天/夜晚、字号、翻页方式、阅读背景图）。
+    `client/src/features/settings/`（prefs 纯 TS + SettingsProvider + readerBackground）；
+    夜晚模式走 `:root[data-theme='dark']` 只重定义变量，`app.css` 里 34 处硬编码浅色块
+    全部收成变量（亮色下取值与改前逐字节相同）；
+    字号接进窗口化几何 —— `buildGeometry(paragraphs, fontSize)` 按 16px 基线缩放，
+    并在字号变化时**重锚定滚动位置**（不做的话跳转落点会静默偏掉几百像素）；
+    背景图存 IndexedDB（`zhiyin-cache` 升到 v4，新增 `readerbg` store），只存本地不上传。
+  - R7-4 已完成：上传上限 20MB→100MB（`bodyLimit`；`PUT .../file` 此前没有自己的上限，
+    现在补了；导入的两个请求超时放宽到 120 秒；前端读文件之前就预检）；
+    收藏（新表 `T_Favorite`，`PUT/DELETE /api/documents/{docId}/favorite` 两个方向都幂等，
+    书架列表每项带 `isFavorite`，左导航新增「我的收藏」）。
+  - R7-5 已完成：阅读时长统计（新表 `T_ReadingSession`，`client_id` 唯一索引 + `INSERT OR IGNORE`
+    让离线补报天然幂等；只统计可见且聚焦的时长，卸载路径上 commit 后立刻 keepalive 发一次）；
+    个人主页与头像（新表 `T_UserProfile`，`PUT/GET/DELETE /api/users/me/avatar`，
+    头像**不能**直接 `<img src>`——接口要 Bearer，必须经接口取二进制）；
+    新页面 `/stats` 与 `/profile`，书架左上角头像入口、左导航「阅读时长」。
+  - **R7 五步全部完成。**
 
 **六轮全部完成，252 项断言全绿。剩下的是人力活，不是开发活**：
 在真机上核一遍（尤其窗口化滚动的观感）、把使用说明书打印出来、补 Kokoro 的实机验证。

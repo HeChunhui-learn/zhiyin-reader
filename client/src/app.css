@@ -14,6 +14,62 @@
   --bg-soft: #f6f7f9;
   --danger: #d14343;
   --hl: #fff3bf;
+
+  /* 状态底色。亮色下是"浅底 + 深字"，暗色下整体反过来 ——
+     上面那九个变量只管主色，这些是散落的浅色块，不收进来暗色模式就会
+     在深底上留一块块刺眼的白斑 */
+  --warn-bg: #fff5e6;
+  --warn-fg: #b8730b;
+  --warn-border: #f0e2bd;
+  --ok-bg: #eaf7ef;
+  --ok-fg: #2f7d51;
+  --ok-border: #cbe7d7;
+  --err-bg: #fdecec;
+  --err-border: #f3c9c9;
+  /* 侧栏选中项、进度槽、引导页轮播点、正文句子悬停 */
+  --fill: #eaf1fe;
+  --track: #eceff3;
+  --track-2: #e2e6ec;
+  --dot: #d3d9e2;
+  --hover: #f0f3f8;
+  /* 引导页的装饰性底色。它们是渐变色，没法套用纯色变量，只能整条换掉 */
+  --hero-bg: radial-gradient(circle at 50% 0%, #eef3fd 0%, #ffffff 60%);
+  --figure-bg: linear-gradient(135deg, #f0f4fa, #e3ecf7);
+}
+
+/*
+ * 夜晚模式。只重定义变量，不改任何具体规则 ——
+ * 上面那批规则已经全部走 var()，这里换个值就整体跟着变。
+ * 由 features/settings/SettingsProvider.tsx 往 <html> 上写 data-theme。
+ */
+:root[data-theme='dark'] {
+  --primary: #4c8dff;
+  --primary-dark: #3a78e6;
+  --text: #e6e8eb;
+  --muted: #9aa3b0;
+  --border: #2c313a;
+  --bg: #1b1e24;
+  --bg-soft: #14171c;
+  --danger: #ff6b6b;
+  /* 高亮色在深底上必须换成暗琥珀：原来那个 #fff3bf 拿来做背景又做描边，会炸开 */
+  --hl: #574413;
+
+  --warn-bg: #3a2f14;
+  --warn-fg: #e0b45c;
+  --warn-border: #4d3f1c;
+  --ok-bg: #17301f;
+  --ok-fg: #6fd39a;
+  --ok-border: #24503a;
+  --err-bg: #3a1f1f;
+  --err-border: #5a2c2c;
+  --fill: #232a3a;
+  --track: #23272f;
+  --track-2: #23272f;
+  --dot: #3a4048;
+  /* 注意这里是"比底更亮"而不是更暗：暗色下悬停要浮起来，不是凹下去 */
+  --hover: #262b33;
+  --hero-bg: radial-gradient(circle at 50% 0%, #1f2733 0%, #14171c 60%);
+  --figure-bg: linear-gradient(135deg, #232a34, #1b212a);
 }
 
 * {
@@ -74,7 +130,7 @@ button {
 
 .btn-ghost {
   border-color: var(--border);
-  background: #fff;
+  background: var(--bg);
 }
 
 .btn-ghost:hover:not(:disabled) {
@@ -98,7 +154,7 @@ button {
   padding: 9px 12px;
   border: 1px solid var(--border);
   border-radius: 8px;
-  background: #fff;
+  background: var(--bg);
   color: var(--text);
   font-family: inherit;
   font-size: inherit;
@@ -117,7 +173,7 @@ button {
 }
 
 .alert-error {
-  background: #fdecec;
+  background: var(--err-bg);
   color: var(--danger);
 }
 
@@ -138,7 +194,7 @@ button {
   align-items: center;
   justify-content: center;
   min-height: 100%;
-  background: radial-gradient(circle at 50% 0%, #eef3fd 0%, #ffffff 60%);
+  background: var(--hero-bg);
 }
 
 .guide-stage {
@@ -168,7 +224,7 @@ button {
   height: 190px;
   margin: 34px 0;
   border-radius: 16px;
-  background: linear-gradient(135deg, #f0f4fa, #e3ecf7);
+  background: var(--figure-bg);
   font-size: 64px;
   user-select: none;
   cursor: grab;
@@ -184,7 +240,7 @@ button {
   padding: 20px 16px;
   border: 1px solid var(--border);
   border-radius: 12px;
-  background: #fff;
+  background: var(--bg);
   text-align: left;
 }
 
@@ -217,7 +273,7 @@ button {
   padding: 0;
   border: none;
   border-radius: 50%;
-  background: #d3d9e2;
+  background: var(--dot);
 }
 
 .guide-dot.active {
@@ -290,7 +346,7 @@ button {
   padding: 32px;
   border: 1px solid var(--border);
   border-radius: 14px;
-  background: #fff;
+  background: var(--bg);
   box-shadow: 0 8px 30px rgba(31, 35, 40, 0.06);
 }
 
@@ -365,7 +421,7 @@ button {
 .divider span {
   position: relative;
   padding: 0 10px;
-  background: #fff;
+  background: var(--bg);
 }
 
 .login-note {
@@ -440,7 +496,7 @@ button {
 }
 
 .side-item.active {
-  background: #eaf1fe;
+  background: var(--fill);
   color: var(--primary);
   font-weight: 600;
 }
@@ -458,15 +514,15 @@ button {
   color: var(--muted);
 }
 .sync-busy {
-  background: #fff5e6;
-  color: #b8730b;
+  background: var(--warn-bg);
+  color: var(--warn-fg);
 }
 .sync-ok {
-  background: #eaf7ef;
-  color: #2f7d51;
+  background: var(--ok-bg);
+  color: var(--ok-fg);
 }
 .sync-conflict {
-  background: #fdecec;
+  background: var(--err-bg);
   color: var(--danger);
 }
 
@@ -489,13 +545,13 @@ button {
 }
 
 .parse-bar.done {
-  background: #eaf7ef;
-  border-color: #cbe7d7;
+  background: var(--ok-bg);
+  border-color: var(--ok-border);
 }
 
 .parse-bar.failed {
-  background: #fdecec;
-  border-color: #f3c9c9;
+  background: var(--err-bg);
+  border-color: var(--err-border);
   color: var(--danger);
 }
 
@@ -514,7 +570,7 @@ button {
   flex: 1;
   height: 6px;
   border-radius: 3px;
-  background: #e2e6ec;
+  background: var(--track-2);
   overflow: hidden;
 }
 
@@ -538,7 +594,7 @@ button {
   border: 1px solid var(--border);
   border-radius: 12px;
   overflow: hidden;
-  background: #fff;
+  background: var(--bg);
   cursor: pointer;
   transition: box-shadow 0.15s, transform 0.15s;
 }
@@ -559,6 +615,258 @@ button {
   font-size: 17px;
   text-align: center;
   letter-spacing: 1px;
+}
+
+/* ---- 头像（R7-5） ---- */
+
+.avatar {
+  display: inline-block;
+  border-radius: 50%;
+  object-fit: cover;
+  flex: none;
+  background: var(--bg-soft);
+}
+
+/* 没有头像时用昵称首字兜底：不留空位，也不会把布局顶歪 */
+.avatar-text {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--primary);
+  color: #fff;
+  font-weight: 600;
+  line-height: 1;
+  user-select: none;
+}
+
+.shelf-avatar {
+  padding: 0;
+  border: none;
+  border-radius: 50%;
+  background: none;
+  line-height: 0;
+  flex: none;
+}
+
+.shelf-avatar:hover {
+  box-shadow: 0 0 0 2px var(--primary);
+}
+
+/* ---- 个人主页（R7-5） ---- */
+
+.profile-main,
+.stats-main {
+  display: block;
+  padding: 28px 32px;
+  overflow-y: auto;
+}
+
+.profile-card {
+  max-width: 620px;
+  padding: 26px 28px;
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  background: var(--bg);
+}
+
+.profile-avatar-row {
+  display: flex;
+  align-items: center;
+  gap: 22px;
+  padding-bottom: 22px;
+  border-bottom: 1px solid var(--border);
+}
+
+.profile-avatar-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+}
+
+.profile-hint {
+  flex-basis: 100%;
+  margin: 2px 0 0;
+  font-size: 12px;
+}
+
+.profile-field {
+  padding: 22px 0;
+  border-bottom: 1px solid var(--border);
+}
+
+.profile-label {
+  display: block;
+  margin-bottom: 8px;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--muted);
+}
+
+.profile-row {
+  display: flex;
+  gap: 10px;
+  max-width: 420px;
+}
+
+.profile-meta {
+  display: grid;
+  grid-template-columns: 84px 1fr;
+  gap: 10px 16px;
+  margin: 22px 0 0;
+  font-size: 13px;
+}
+
+.profile-meta dt {
+  color: var(--muted);
+}
+
+.profile-meta dd {
+  margin: 0;
+  color: var(--text);
+}
+
+.profile-mono {
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 12px;
+}
+
+/* ---- 阅读时长（R7-5） ---- */
+
+.stat-cards {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 16px;
+  max-width: 860px;
+}
+
+.stat-card {
+  padding: 20px 22px;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  background: var(--bg);
+}
+
+.stat-value {
+  font-size: 22px;
+  font-weight: 600;
+  color: var(--text);
+}
+
+.stat-label {
+  margin-top: 6px;
+  font-size: 13px;
+  color: var(--muted);
+}
+
+.stat-note {
+  max-width: 860px;
+  margin: 16px 0 26px;
+  font-size: 12px;
+  line-height: 1.7;
+}
+
+.stat-books {
+  max-width: 860px;
+}
+
+.stat-books-head {
+  margin-bottom: 12px;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--muted);
+}
+
+.stat-book {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 200px 110px;
+  align-items: center;
+  gap: 16px;
+  padding: 10px 0;
+  border-bottom: 1px solid var(--border);
+}
+
+.stat-book-title {
+  padding: 0;
+  border: none;
+  background: none;
+  color: var(--text);
+  text-align: left;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.stat-book-title:hover {
+  color: var(--primary);
+}
+
+.stat-book-bar {
+  height: 6px;
+  border-radius: 3px;
+  background: var(--track);
+  overflow: hidden;
+}
+
+.stat-book-fill {
+  height: 100%;
+  border-radius: 3px;
+  background: var(--primary);
+}
+
+.stat-book-time {
+  font-size: 13px;
+  color: var(--muted);
+  text-align: right;
+}
+
+/* 侧栏里指向独立页面的那一项，跟分类项区分开 */
+.side-item-link {
+  margin-top: 10px;
+  border-top: 1px solid var(--border);
+  border-radius: 0 0 7px 7px;
+}
+
+/* ---- 收藏（R7-4） ---- */
+
+/* 和删除按钮对称：放左上角，平时半可见，悬停变实。
+   已收藏时保持常亮 —— 扫一眼书架就知道哪些收过 */
+.book-fav {
+  position: absolute;
+  top: 8px;
+  left: 8px;
+  width: 28px;
+  height: 28px;
+  padding: 0;
+  border: 1px solid rgba(255, 255, 255, 0.5);
+  border-radius: 999px;
+  background: rgba(0, 0, 0, 0.28);
+  color: #fff;
+  font-size: 15px;
+  line-height: 1;
+  cursor: pointer;
+  opacity: 0.55;
+  transition: opacity 0.15s, background 0.15s;
+}
+
+.book-card:hover .book-fav,
+.book-fav:focus-visible {
+  opacity: 1;
+}
+
+.book-fav:hover {
+  background: rgba(0, 0, 0, 0.5);
+}
+
+.book-fav.on {
+  opacity: 1;
+  background: rgba(0, 0, 0, 0.45);
+  border-color: #f5c542;
+  color: #f5c542;
+}
+
+.book-fav:disabled {
+  cursor: progress;
 }
 
 /* ---- 删除已导入的书 ---- */
@@ -653,7 +961,7 @@ button {
   height: 5px;
   margin: 12px 0 10px;
   border-radius: 3px;
-  background: #eceff3;
+  background: var(--track);
   overflow: hidden;
 }
 
@@ -707,7 +1015,7 @@ button {
   height: 52px;
   padding: 0 22px;
   border-bottom: 1px solid var(--border);
-  background: #fff;
+  background: var(--bg);
   flex: none;
 }
 
@@ -747,9 +1055,111 @@ button {
   width: 260px;
   padding: 14px 10px;
   border-right: 1px solid var(--border);
-  background: #fff;
+  background: var(--bg);
   overflow-y: auto;
   flex: none;
+}
+
+/* 目录抽屉：盖在正文上，**不占流**。
+   占流会把正文推走，而窗口化的几何表是按"正文宽度不变"算出来的 ——
+   一推开就得整表重测，长文档下会明显抖一下。 */
+.toc-panel.drawer {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: 0;
+  z-index: 20;
+  width: 280px;
+  box-shadow: 8px 0 24px rgba(0, 0, 0, 0.18);
+}
+
+/* 设置面板从右边出来，和目录抽屉对称 */
+.toc-panel.drawer-right {
+  position: absolute;
+  top: 0;
+  right: 0;
+  bottom: 0;
+  left: auto;
+  z-index: 20;
+  width: 300px;
+  border-right: none;
+  border-left: 1px solid var(--border);
+  box-shadow: -8px 0 24px rgba(0, 0, 0, 0.18);
+}
+
+/* 抽屉外点一下关掉。只盖住正文区，顶栏保持可点（「目录」还能再按一次收起） */
+.toc-mask {
+  position: absolute;
+  inset: 0;
+  z-index: 19;
+  background: rgba(0, 0, 0, 0.28);
+}
+
+/* --------------------------------------------------------- 阅读设置面板 */
+
+.set-group {
+  padding: 10px 12px 4px;
+}
+
+.set-group + .set-group {
+  border-top: 1px solid var(--border);
+}
+
+.set-label {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  margin-bottom: 8px;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--muted);
+}
+
+.set-value {
+  font-weight: 400;
+  font-variant-numeric: tabular-nums;
+}
+
+.set-seg {
+  display: flex;
+  gap: 6px;
+}
+
+.set-seg button {
+  flex: 1;
+  padding: 7px 10px;
+  border: 1px solid var(--border);
+  border-radius: 7px;
+  background: var(--bg-soft);
+  color: var(--text);
+  font-size: 13px;
+}
+
+.set-seg button:hover:not(:disabled) {
+  border-color: var(--primary);
+}
+
+.set-seg button.on {
+  border-color: var(--primary);
+  background: var(--fill);
+  color: var(--primary);
+  font-weight: 600;
+}
+
+.set-seg button:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+.set-note {
+  margin: 8px 0 0;
+  font-size: 12px;
+  line-height: 1.7;
+  color: var(--muted);
+}
+
+.set-note-err {
+  color: var(--danger);
 }
 
 .toc-head {
@@ -846,7 +1256,44 @@ button {
   background: var(--bg-soft);
 }
 
+/* 当前章节。放在 .lv2 之后，二级的灰色 color 才会被这里盖掉 */
+.toc-item.active {
+  background: var(--bg-soft);
+  color: var(--primary);
+  font-weight: 600;
+}
+
+/*
+ * 阅读背景图。**脱离文档流**是必须的：放进流里会给每个段落加上一段
+ * offsetTop，窗口化的几何表和上下撑高块的高度就全算错了。
+ * 盖在 .reader-body 上而不是 .reader-scroll 里，这样它不会跟着正文滚走。
+ */
+.reader-bg {
+  position: absolute;
+  inset: 0;
+  z-index: 0;
+  pointer-events: none;
+  background-size: cover;
+  background-position: center;
+  background-repeat: no-repeat;
+}
+
+/* 压一层蒙版保住正文对比度。默认白蒙版，夜晚模式换成黑蒙版 */
+.reader-bg-scrim {
+  position: absolute;
+  inset: 0;
+  z-index: 0;
+  pointer-events: none;
+  background: rgba(255, 255, 255, 0.74);
+}
+
+.reader-bg-scrim.on {
+  background: rgba(12, 14, 18, 0.74);
+}
+
 .reader-scroll {
+  position: relative;
+  z-index: 1; /* 压在背景图层之上 */
   flex: 1;
   overflow-y: auto;
   padding: 34px 0 60px;
@@ -859,15 +1306,17 @@ button {
   line-height: 1.9;
 }
 
+/* 标题字号用 em 而不是 px：这样它跟着 .reader-content 的字号一起缩放。
+   写成 px 的话读者把正文字号调到 24px，标题反而比正文还小 */
 .doc-h1 {
   margin: 26px 0 22px;
-  font-size: 24px;
+  font-size: 1.5em; /* 基准 16px 时 = 24px，与原来一致 */
   text-align: center;
 }
 
 .doc-h2 {
   margin: 30px 0 16px;
-  font-size: 18px;
+  font-size: 1.125em; /* 基准 16px 时 = 18px */
   padding-left: 10px;
   border-left: 3px solid var(--primary);
 }
@@ -884,7 +1333,7 @@ button {
 }
 
 .sent:hover {
-  background: #f0f3f8;
+  background: var(--hover);
 }
 
 .sent-active {
@@ -970,24 +1419,24 @@ button {
   justify-content: center;
   gap: 14px;
   padding: 8px;
-  background: #fff8e6;
-  border-top: 1px solid #f0e2bd;
+  background: var(--warn-bg);
+  border-top: 1px solid var(--warn-border);
   font-size: 13px;
-  color: #8a6b1f;
+  color: var(--warn-fg);
   flex: none;
 }
 
 .resume-error {
-  background: #fdecec;
-  border-top-color: #f3c9c9;
+  background: var(--err-bg);
+  border-top-color: var(--err-border);
   color: var(--danger);
 }
 
 .pb-note {
   padding: 3px 8px;
   border-radius: 6px;
-  background: #fff5e6;
-  color: #b8730b;
+  background: var(--warn-bg);
+  color: var(--warn-fg);
   font-size: 12px;
   white-space: nowrap;
 }
@@ -1001,7 +1450,7 @@ button {
   height: 64px;
   padding: 0 22px;
   border-top: 1px solid var(--border);
-  background: #fff;
+  background: var(--bg);
   flex: none;
 }
 
@@ -1009,7 +1458,7 @@ button {
   padding: 8px 14px;
   border: 1px solid var(--border);
   border-radius: 8px;
-  background: #fff;
+  background: var(--bg);
 }
 
 .pb-btn:hover:not(:disabled) {
@@ -1074,7 +1523,7 @@ button {
   display: flex;
   flex-direction: column;
   border-radius: 14px;
-  background: #fff;
+  background: var(--bg);
   overflow: hidden;
   box-shadow: 0 20px 50px rgba(0, 0, 0, 0.25);
 }
@@ -1137,7 +1586,7 @@ button {
   padding: 10px 12px;
   border: 1px solid var(--border);
   border-radius: 8px;
-  background: #fff;
+  background: var(--bg);
 }
 
 .diff-device {

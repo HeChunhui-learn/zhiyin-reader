@@ -14,6 +14,16 @@ const BASE = '/api'
 /** 单个请求的超时（毫秒）。超时按网络错误处理，界面给中文提示 */
 const REQUEST_TIMEOUT_MS = 15000
 
+/**
+ * 导入相关请求的超时（R7-4）。
+ *
+ * 正文 JSON 与原始文件都可能上百 MB，还夹着前端解析的耗时，
+ * 15 秒对它们根本不够用 —— 表现是"导入到一半报请求超时"，
+ * 而服务端其实收下了。只放宽这两个，其余请求维持 15 秒，
+ * 免得一个卡住的普通接口把界面永远吊在"加载中"。
+ */
+const UPLOAD_TIMEOUT_MS = 120000
+
 /** 后端 §1 的统一错误信封 */
 interface ErrorEnvelope {
   code?: string
@@ -44,10 +54,14 @@ export class ApiError extends Error {
   }
 }
 
-async function rawRequest<T>(path: string, init?: RequestInit): Promise<T> {
+async function rawRequest<T>(
+  path: string,
+  init?: RequestInit,
+  timeoutMs = REQUEST_TIMEOUT_MS,
+): Promise<T> {
   // 没有超时的话，一个卡住的请求会让界面永远停在"加载中"，比报错还难查
   const ctrl = new AbortController()
-  const timer = setTimeout(() => ctrl.abort(), REQUEST_TIMEOUT_MS)
+  const timer = setTimeout(() => ctrl.abort(), timeoutMs)
 
   let res: Response
   try {
@@ -118,6 +132,7 @@ async function request<T>(
   path: string,
   init: RequestInit = {},
   retryOnExpired = true,
+  timeoutMs = REQUEST_TIMEOUT_MS,
 ): Promise<T> {
   const token = authStore.access
   const headers: Record<string, string> = {
@@ -127,7 +142,7 @@ async function request<T>(
   if (token) headers.Authorization = `Bearer ${token}`
 
   try {
-    return await rawRequest<T>(path, { ...init, headers })
+    return await rawRequest<T>(path, { ...init, headers }, timeoutMs)
   } catch (e) {
     const err = e as ApiError
     const expired =
@@ -136,7 +151,8 @@ async function request<T>(
       !!authStore.refresh
 
     if (expired && retryOnExpired && (await refreshOnce())) {
-      return request<T>(path, init, false)
+      // 重放时把加长的超时一并带上，否则大文件刷新令牌后重发又会超时
+      return request<T>(path, init, false, timeoutMs)
     }
     throw err
   }
@@ -150,6 +166,7 @@ async function requestBinary(
   path: string,
   init: RequestInit = {},
   retryOnExpired = true,
+  timeoutMs = REQUEST_TIMEOUT_MS,
 ): Promise<Response> {
   const token = authStore.access
   const headers: Record<string, string> = {
@@ -158,7 +175,7 @@ async function requestBinary(
   if (token) headers.Authorization = `Bearer ${token}`
 
   const ctrl = new AbortController()
-  const timer = setTimeout(() => ctrl.abort(), REQUEST_TIMEOUT_MS)
+  const timer = setTimeout(() => ctrl.abort(), timeoutMs)
 
   let res: Response
   try {
@@ -193,7 +210,7 @@ async function requestBinary(
       (err.code === 'AUTH_TOKEN_EXPIRED' || err.code === 'AUTH_REQUIRED') &&
       !!authStore.refresh
     if (expired && retryOnExpired && (await refreshOnce())) {
-      return requestBinary(path, init, false)
+      return requestBinary(path, init, false, timeoutMs)
     }
     throw err
   }
@@ -207,6 +224,19 @@ export interface UserInfo {
   userId: string
   account: string
   nickname: string
+  /** 有头像时是 /api/users/me/avatar，没有则为 null。图片本体要另取（见 getAvatar） */
+  avatarUrl: string | null
+}
+
+/** 阅读时长总览（R7-5）。与契约 §6.4 的 GET /api/reading-time/summary 对应 */
+export interface ReadingSummary {
+  totalMs: number
+  totalMinutes: number
+  todayMs: number
+  todayMinutes: number
+  weekMs: number
+  weekMinutes: number
+  books: { docId: string; title: string; totalMs: number; totalMinutes: number }[]
 }
 
 export interface LoginResult extends TokenPair {
@@ -406,6 +436,27 @@ export interface TtsEnginesResponse {
   engines: TtsEngineInfo[]
 }
 
+/**
+ * 音色目录里的一项（契约 §9.4）。
+ *
+ * 与 TtsVoice 的区别：那个是"上游此刻能合成的音色"，这个是"这个引擎有哪些音色、
+ * 本机装了哪些"。available=false 的是目录里有、但本机没装离线包的，界面上置灰。
+ */
+export interface TtsVoiceDetail extends TtsVoice {
+  gender?: 'female' | 'male'
+  chinese: boolean
+  available: boolean
+  note?: string
+}
+
+export interface TtsVoicesResponse {
+  engine: string
+  engineLabel: string
+  /** 上游引擎本身通不通。false = 本地推理服务没起来，整条目录都不可用 */
+  engineAvailable: boolean
+  voices: TtsVoiceDetail[]
+}
+
 export interface ImportResult {
   docId: string
   title: string
@@ -438,6 +489,51 @@ export const api = {
 
   me: () => request<UserInfo & { createdAt: string; lastLogin: string | null }>('/users/me'),
 
+  /** 改昵称 / 改密码（契约 §3.5）。昵称改了之后要重新取一次 me() 才能刷新会话里的副本 */
+  updateMe: (body: { nickname?: string; oldPassword?: string; newPassword?: string }) =>
+    request<UserInfo & { createdAt: string; lastLogin: string | null }>('/users/me', {
+      method: 'PATCH',
+      body: JSON.stringify(body),
+    }),
+
+  /* 头像（契约 §3.6） */
+
+  uploadAvatar: (blob: Blob): Promise<{ avatarUrl: string; bytes: number }> =>
+    requestBinary('/users/me/avatar', {
+      method: 'PUT',
+      headers: { 'Content-Type': blob.type || 'application/octet-stream' },
+      body: blob,
+    }).then((r) => r.json()),
+
+  deleteAvatar: () => request<{ avatarUrl: string | null }>('/users/me/avatar', { method: 'DELETE' }),
+
+  /** 取头像二进制。没有头像时抛 NOT_FOUND 的 ApiError，调用方回退到文字头像 */
+  getAvatar: async (): Promise<Blob> => (await requestBinary('/users/me/avatar')).blob(),
+
+  /* 阅读时长（契约 §6.4） */
+
+  getReadingSummary: () => request<ReadingSummary>('/reading-time/summary'),
+
+  getReadingTime: (docId: string) =>
+    request<{ docId: string; totalMs: number; totalMinutes: number }>(
+      `/documents/${docId}/reading-time`,
+    ),
+
+  postReadingTime: (
+    docId: string,
+    body: {
+      deviceId: string
+      clientId: string
+      durationMs: number
+      startedAt: string
+      endedAt: string
+    },
+  ) =>
+    request<{ docId: string; totalMs: number }>(`/documents/${docId}/reading-time`, {
+      method: 'POST',
+      body: JSON.stringify(body),
+    }),
+
   /** 用 localStorage 里的刷新令牌静默换一个新访问令牌（刷新页面后用） */
   silentLogin: () => refreshOnce(),
 
@@ -457,14 +553,32 @@ export const api = {
   getContent: (docId: string, from = 0, to = 100000) =>
     request<ContentPage>(`/documents/${docId}/content?from=${from}&to=${to}`),
 
+  // 导入的正文 JSON 可能上百 MB，用放宽后的超时
   importDocument: (payload: ImportPayload) =>
-    request<ImportResult>('/documents', {
-      method: 'POST',
-      body: JSON.stringify(payload),
-    }),
+    request<ImportResult>(
+      '/documents',
+      { method: 'POST', body: JSON.stringify(payload) },
+      true,
+      UPLOAD_TIMEOUT_MS,
+    ),
 
   deleteDocument: (docId: string) =>
     request<void>(`/documents/${docId}`, { method: 'DELETE' }),
+
+  /* 收藏（R7-4）。两个方向都幂等，重复调用不会出错 */
+
+  // 显式发一个空对象：Fastify 见到 Content-Type: application/json 却没有 body 会直接
+  // 400（FST_ERR_CTP_EMPTY_JSON_BODY）。这里带上 {} 就不必依赖"客户端恰好没设这个头"
+  addFavorite: (docId: string) =>
+    request<{ docId: string; isFavorite: boolean }>(`/documents/${docId}/favorite`, {
+      method: 'PUT',
+      body: '{}',
+    }),
+
+  removeFavorite: (docId: string) =>
+    request<{ docId: string; isFavorite: boolean }>(`/documents/${docId}/favorite`, {
+      method: 'DELETE',
+    }),
 
   /* 图片（契约 §4.3 / §5） */
 
@@ -491,15 +605,24 @@ export const api = {
     docId: string,
     blob: Blob,
   ): Promise<{ docId: string; fileUrl: string; fileSize: number }> =>
-    requestBinary(`/documents/${docId}/file`, {
-      method: 'PUT',
-      headers: { 'Content-Type': 'application/octet-stream' },
-      body: blob,
-    }).then((r) => r.json()),
+    // 原始文件可以很大，和 importDocument 用同一档放宽后的超时
+    requestBinary(
+      `/documents/${docId}/file`,
+      {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/octet-stream' },
+        body: blob,
+      },
+      true,
+      UPLOAD_TIMEOUT_MS,
+    ).then((r) => r.json()),
 
-  /* TTS（契约 §9.1 / §9.2） */
+  /* TTS（契约 §9.1 / §9.2 / §9.4） */
 
   listTtsEngines: () => request<TtsEnginesResponse>('/tts/engines'),
+
+  /** 音色目录（契约 §9.4）：含本机没装的，供界面置灰展示 */
+  listTtsVoices: () => request<TtsVoicesResponse>('/tts/voices'),
 
   /** 合成单句音频。服务端失败时抛 ApiError（UPSTREAM_TTS_FAILED 等），调用方降级 */
   synthesizeSpeech: (body: {

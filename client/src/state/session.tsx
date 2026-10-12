@@ -9,6 +9,8 @@ interface SessionValue {
   login: (account: string, password: string) => Promise<UserInfo>
   register: (account: string, password: string, nickname?: string) => Promise<void>
   logout: () => Promise<void>
+  /** 重新拉一次当前用户（改完昵称或头像后用），失败静默 */
+  refreshUser: () => Promise<void>
 }
 
 const Ctx = createContext<SessionValue | null>(null)
@@ -28,7 +30,14 @@ export function SessionProvider({ children }: { children: ReactNode }) {
         if (authStore.refresh && (await api.silentLogin())) {
           const me = await api.me()
           if (alive) {
-            setUser({ userId: me.userId, account: me.account, nickname: me.nickname })
+            // 注意把 avatarUrl 一起带上：漏了的话全局都拿不到头像，
+            // 而且不报错 —— 只是所有头像位置都空着
+            setUser({
+              userId: me.userId,
+              account: me.account,
+              nickname: me.nickname,
+              avatarUrl: me.avatarUrl,
+            })
           }
         }
       } catch {
@@ -71,8 +80,22 @@ export function SessionProvider({ children }: { children: ReactNode }) {
     setUser(null)
   }, [])
 
+  const refreshUser = useCallback(async () => {
+    try {
+      const me = await api.me()
+      setUser({
+        userId: me.userId,
+        account: me.account,
+        nickname: me.nickname,
+        avatarUrl: me.avatarUrl,
+      })
+    } catch {
+      // 拉不到就维持现状：这是刷新副本，不是关键路径，不该把界面搞崩
+    }
+  }, [])
+
   return (
-    <Ctx.Provider value={{ user, ready, login, register, logout }}>
+    <Ctx.Provider value={{ user, ready, login, register, logout, refreshUser }}>
       {children}
     </Ctx.Provider>
   )

@@ -89,6 +89,33 @@ export interface BookmarkRow {
   deleted_at: string | null
 }
 
+/** 收藏（R7-4）。只有"有没有"这一件事，没有版本号也没有墓碑 */
+export interface FavoriteRow {
+  user_id: string
+  doc_id: string
+  created_at: string
+}
+
+/** 一段阅读时长（R7-5）。流水式追加，不做原地累加 */
+export interface ReadingSessionRow {
+  session_id: string
+  user_id: string
+  doc_id: string
+  device_id: string
+  started_at: string
+  ended_at: string
+  duration_ms: number
+  client_id: string
+  created_at: string
+}
+
+/** 用户档案（R7-5）。目前只有头像 */
+export interface UserProfileRow {
+  user_id: string
+  avatar_url: string | null
+  updated_at: string
+}
+
 export interface SyncRecordRow {
   record_id: string
   user_id: string
@@ -371,6 +398,11 @@ export class DataAccessLibrary {
           ' AND EXISTS (SELECT 1 FROM T_Bookmark b WHERE b.doc_id = d.doc_id AND b.user_id = ? AND b.deleted_at IS NULL)'
         params.push(userId)
         break
+      case 'favorite': // R7-4：收藏过的
+        where +=
+          ' AND EXISTS (SELECT 1 FROM T_Favorite f WHERE f.doc_id = d.doc_id AND f.user_id = ?)'
+        params.push(userId)
+        break
       case 'offline':
         // "有本地副本"是纯客户端状态，服务端不可知（材料审查 O21），这里返回空集
         where += ' AND 0'
@@ -408,6 +440,123 @@ export class DataAccessLibrary {
       .prepare('SELECT COUNT(*) AS n FROM T_ImageResource WHERE doc_id = ?')
       .get(docId) as { n: number }
     return row.n
+  }
+
+  /* ---- 收藏（R7-4） ---- */
+
+  /** 收藏是幂等的：重复收藏同一本不该报错，也不该刷新 created_at */
+  addFavorite(userId: string, docId: string, at: string): void {
+    getDb()
+      .prepare(
+        'INSERT OR IGNORE INTO T_Favorite (user_id, doc_id, created_at) VALUES (?, ?, ?)',
+      )
+      .run(userId, docId, at)
+  }
+
+  /** 取消收藏同样幂等：没收藏过也当成功 */
+  removeFavorite(userId: string, docId: string): void {
+    getDb()
+      .prepare('DELETE FROM T_Favorite WHERE user_id = ? AND doc_id = ?')
+      .run(userId, docId)
+  }
+
+  isFavorite(userId: string, docId: string): boolean {
+    const row = getDb()
+      .prepare('SELECT 1 AS ok FROM T_Favorite WHERE user_id = ? AND doc_id = ?')
+      .get(userId, docId)
+    return row !== undefined
+  }
+
+  /**
+   * 书架列表要逐条标"这本收藏了没有"。
+   * 一次把该读者的收藏全取出来，比每条文档各查一次 EXISTS 省事得多
+   * （收藏是少量数据，几百条也就一张 Set）。
+   */
+  listFavoriteDocIds(userId: string): Set<string> {
+    const rows = getDb()
+      .prepare('SELECT doc_id FROM T_Favorite WHERE user_id = ?')
+      .all(userId) as { doc_id: string }[]
+    return new Set(rows.map((r) => r.doc_id))
+  }
+
+  /* ---- 阅读时长（R7-5） ---- */
+
+  /**
+   * 追加一段阅读时长。INSERT OR IGNORE + client_id 唯一索引 =
+   * 离线队列重发同一条时自动变成无操作，不用先查一次。
+   */
+  insertReadingSession(row: ReadingSessionRow): void {
+    getDb()
+      .prepare(
+        `INSERT OR IGNORE INTO T_ReadingSession
+           (session_id, user_id, doc_id, device_id, started_at, ended_at,
+            duration_ms, client_id, created_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      )
+      .run(
+        row.session_id,
+        row.user_id,
+        row.doc_id,
+        row.device_id,
+        row.started_at,
+        row.ended_at,
+        row.duration_ms,
+        row.client_id,
+        row.created_at,
+      )
+  }
+
+  /** 某本书的累计阅读时长（毫秒） */
+  sumReadingMs(userId: string, docId: string): number {
+    const row = getDb()
+      .prepare(
+        'SELECT COALESCE(SUM(duration_ms), 0) AS n FROM T_ReadingSession WHERE user_id = ? AND doc_id = ?',
+      )
+      .get(userId, docId) as { n: number }
+    return row.n
+  }
+
+  /** 某本书的累计时长（不筛时间，用于「按书排行」） */
+  listReadingMsByDocument(userId: string): { doc_id: string; ms: number }[] {
+    return getDb()
+      .prepare(
+        `SELECT doc_id, SUM(duration_ms) AS ms
+           FROM T_ReadingSession WHERE user_id = ?
+          GROUP BY doc_id ORDER BY ms DESC`,
+      )
+      .all(userId) as { doc_id: string; ms: number }[]
+  }
+
+  /**
+   * 时间窗内的累计时长。
+   * `since` 传 ISO 串；比的是 started_at —— 一段跨零点的阅读算在开始那天，
+   * 够用且好解释，不为了几个跨零点的会话去拆时间段。
+   */
+  sumReadingMsSince(userId: string, since: string): number {
+    const row = getDb()
+      .prepare(
+        'SELECT COALESCE(SUM(duration_ms), 0) AS n FROM T_ReadingSession WHERE user_id = ? AND started_at >= ?',
+      )
+      .get(userId, since) as { n: number }
+    return row.n
+  }
+
+  /* ---- 用户档案 / 头像（R7-5） ---- */
+
+  getUserProfile(userId: string): UserProfileRow | undefined {
+    return getDb()
+      .prepare('SELECT * FROM T_UserProfile WHERE user_id = ?')
+      .get(userId) as UserProfileRow | undefined
+  }
+
+  /** 头像地址存成 upsert：第一次设置和后来换图是同一条路径 */
+  setUserAvatar(userId: string, avatarUrl: string | null, at: string): void {
+    getDb()
+      .prepare(
+        `INSERT INTO T_UserProfile (user_id, avatar_url, updated_at) VALUES (?, ?, ?)
+         ON CONFLICT(user_id) DO UPDATE SET avatar_url = excluded.avatar_url, updated_at = excluded.updated_at`,
+      )
+      .run(userId, avatarUrl, at)
   }
 
   /* ---- 图片资源（契约 §4.3 懒上传 / §5 服务端代理） ---- */

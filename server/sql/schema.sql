@@ -145,3 +145,48 @@ CREATE TABLE IF NOT EXISTS T_Token (
 );
 CREATE INDEX IF NOT EXISTS ix_token_user
   ON T_Token(user_id);
+
+-- (10) 收藏表（R7-4 追加）----------------------------------------------------
+-- 只追加新表，不改上面任何一张表的定义 —— 改已有表的列要 db:reset，
+-- 那会把读者已经导入的书全删掉。initDb() 每次启动重跑本文件，
+-- 全是 CREATE ... IF NOT EXISTS，所以现有的库下次启动就自动多出这张表。
+CREATE TABLE IF NOT EXISTS T_Favorite (
+  user_id    TEXT NOT NULL REFERENCES T_User(user_id) ON DELETE CASCADE,
+  doc_id     TEXT NOT NULL REFERENCES T_Document(doc_id) ON DELETE CASCADE,
+  created_at TEXT NOT NULL,
+  PRIMARY KEY (user_id, doc_id)
+);
+CREATE INDEX IF NOT EXISTS ix_favorite_user
+  ON T_Favorite(user_id, created_at);
+
+-- (11) 阅读时长（R7-5 追加）---------------------------------------------------
+-- 存**会话流水**而不是"每用户一行累计值"：离线队列会重发（useProgress 那套），
+-- client_id 上的唯一索引 + INSERT OR IGNORE 让重发变成无操作；
+-- 累计计数器方案一重发就多记一次，而且很难事后分辨。
+-- 只记"可见且聚焦"的时长，由前端算好再报上来。
+CREATE TABLE IF NOT EXISTS T_ReadingSession (
+  session_id  TEXT PRIMARY KEY,
+  user_id     TEXT NOT NULL REFERENCES T_User(user_id) ON DELETE CASCADE,
+  doc_id      TEXT NOT NULL REFERENCES T_Document(doc_id) ON DELETE CASCADE,
+  device_id   TEXT NOT NULL,
+  started_at  TEXT NOT NULL,
+  ended_at    TEXT NOT NULL,
+  duration_ms INTEGER NOT NULL,
+  client_id   TEXT NOT NULL,            -- 客户端生成的幂等键，补报必需
+  created_at  TEXT NOT NULL
+);
+CREATE UNIQUE INDEX IF NOT EXISTS ux_readingsession_client
+  ON T_ReadingSession(client_id);
+CREATE INDEX IF NOT EXISTS ix_readingsession_user_doc
+  ON T_ReadingSession(user_id, doc_id, started_at);
+CREATE INDEX IF NOT EXISTS ix_readingsession_user
+  ON T_ReadingSession(user_id, started_at);
+
+-- (12) 用户档案 / 头像（R7-5 追加）-------------------------------------------
+-- 头像单独一张表而不是给 T_User 加列：加列要 db:reset，
+-- 那会把读者已经导入的书全删掉（本轮三条持久化都遵循这一点）。
+CREATE TABLE IF NOT EXISTS T_UserProfile (
+  user_id    TEXT PRIMARY KEY REFERENCES T_User(user_id) ON DELETE CASCADE,
+  avatar_url TEXT,
+  updated_at TEXT NOT NULL
+);

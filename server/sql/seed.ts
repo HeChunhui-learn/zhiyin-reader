@@ -9,9 +9,22 @@
  * （CLAUDE.md 裁决 1：解析在前端，服务端只存）。
  */
 import { createHash } from 'node:crypto'
+import { existsSync, mkdirSync, writeFileSync } from 'node:fs'
+import { join } from 'node:path'
 import { makeSalt, hashPassword } from '../src/auth/password'
 import { dal, newId, now } from '../src/dao'
-import { closeDb, getDb, initDb, isEmpty } from '../src/db'
+import { closeDb, getDb, initDb, isEmpty, SERVER_ROOT } from '../src/db'
+
+/** 演示账号的默认头像：96×96 的品牌色圆点，433 字节的 PNG，直接嵌在源码里 */
+const DEMO_AVATAR_PNG_B64 =
+  'iVBORw0KGgoAAAANSUhEUgAAAGAAAABgCAYAAADimHc4AAABeElEQVR42u3dyxGCQBBFUTMyNBMh' +
+  'VWPAAKQoit9rpg9Vs3VxjzO9UOD1crnWrvfnOx1ZCp4Te965oOyIPl+8YCyEn0OrF0SR6D0xCodf' +
+  'hBAeRNvwz4cYKP6zEAYM/xyIBvHrIjSKXw+hYfw6CE3D/0GI3w1B/CBC4zM/PxPEDyKIH0YQPzgP' +
+  'xA8iOHrCR5H4wV0gfhgBQBBA/CCCwRseyOKHdwGAIID4YQQAQQDDNzyMxQ/vAgBBAMdP+BgSP7wL' +
+  'AAAAIEwIwAAOD2Lxw7sAAAAAggAAYAEAYAEAYAEAYAEAYN0LACH5uzAAv4gBEAZAewAIyf+HAvDf' +
+  'UAAQwveKAXCHjPvEILhLEgCE8JNTAHhehKelAAgDQAjHN5BvHrx2QbFvP4Qi8R1FoaMHQqH4EArE' +
+  'Nw9uPvchFI0PoUB8M8GblMT3Ijdv0xPfyzwhiD8ohDdrC38dwlQ1/LDxi2L0ir4BYrozeuvwGzGO' +
+  'oix+ntLnoGxaCrpWrx//2tPtmbaZ8QAAAABJRU5ErkJggg=='
 
 const DEMO_USER_ID = 'u_demo'
 /** 演示账号的密码。写在这里是为了让"跑完 seed 就能登录进去看演示书" */
@@ -55,6 +68,15 @@ function wipeDemo(): void {
 function main(): void {
   initDb()
   const force = process.argv.includes('--force')
+
+  /*
+   * 演示头像单独补一次，不受下面"库里有数据就跳过"的约束。
+   *
+   * 否则老库（R7-5 之前建的）永远不会有机会拿到这张头像 ——
+   * 想拿到就得 --force，而那会把读者自己导入的书一起删掉，
+   * 为了一个默认头像付这个代价不合适。头像本身是 upsert，重复跑无害。
+   */
+  if (dal.getUserById(DEMO_USER_ID)) seedDemoAvatar(DEMO_USER_ID)
 
   if (force) {
     wipeDemo()
@@ -100,10 +122,26 @@ function main(): void {
     })),
   )
 
+  seedDemoAvatar(DEMO_USER_ID)
+
   console.log(`已灌入演示数据：1 个用户、1 篇文档（${PARAS.length} 段）`)
   console.log(`文档 id：${doc.doc_id}`)
   console.log(`演示账号：${DEMO_ACCOUNT} ／ ${DEMO_PASSWORD}`)
   closeDb()
+}
+
+/**
+ * 给演示账号放一张默认头像（R7-5）。
+ *
+ * 图片直接嵌在源码里而不是外挂一个二进制文件：种子脚本要能在任何一台机器上
+ * 原样跑出同样的结果，多带一个资源文件就多一处"文件没跟着走"的可能。
+ * 才 433 字节，不值得为它建个 assets 目录。
+ */
+function seedDemoAvatar(userId: string): void {
+  const dir = join(SERVER_ROOT, 'data', 'avatars')
+  if (!existsSync(dir)) mkdirSync(dir, { recursive: true })
+  writeFileSync(join(dir, `${userId}.png`), Buffer.from(DEMO_AVATAR_PNG_B64, 'base64'))
+  dal.setUserAvatar(userId, '/api/users/me/avatar', now())
 }
 
 main()
