@@ -36,6 +36,12 @@ export default function LibraryView() {
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
   const [stage, setStage] = useState<ImportStage>({ kind: 'idle' })
+  /** 正在等读者确认删除的文档；同一时刻只允许一张卡片进入确认态 */
+  const [pendingDelete, setPendingDelete] = useState<string | null>(null)
+  /** 正在删的那个文档（按钮转"正在删除…"，防重复提交） */
+  const [deleting, setDeleting] = useState<string | null>(null)
+  /** 删除结果提示。删除是破坏性操作，无论成败都要给回执 */
+  const [notice, setNotice] = useState<{ kind: 'done' | 'failed'; text: string } | null>(null)
 
   const fileRef = useRef<HTMLInputElement>(null)
   const navigate = useNavigate()
@@ -52,6 +58,7 @@ export default function LibraryView() {
     if (!user) return
     setLoading(true)
     setError('')
+    setPendingDelete(null)
     try {
       const { items } = await api.listDocuments({
         keyword: keyword.trim() || undefined,
@@ -69,6 +76,40 @@ export default function LibraryView() {
     const t = window.setTimeout(() => void load(), keyword ? 300 : 0)
     return () => window.clearTimeout(t)
   }, [load, keyword])
+
+  /* 删除回执自动消失（与阅读界面的 toast 一个口径） */
+  useEffect(() => {
+    if (!notice) return
+    const t = window.setTimeout(() => setNotice(null), 3200)
+    return () => window.clearTimeout(t)
+  }, [notice])
+
+  /**
+   * 删除一本书。
+   *
+   * 契约 §4.6 的 DELETE 接口按外键级联，正文 / 句子 / 书签 / 进度一并删掉；
+   * 服务端还会校验属主（不是自己的书返回 403）。
+   * 删除失败**不**走 setError —— 那会把整页书架替换成错误页，
+   * 为了删一本书丢掉整个书架不值得，这里只在顶部给一条回执。
+   */
+  async function onDeleteBook(docId: string, title: string) {
+    setDeleting(docId)
+    setNotice(null)
+    try {
+      await api.deleteDocument(docId)
+      setPendingDelete(null)
+      setNotice({ kind: 'done', text: `已删除《${title}》，正文、书签与阅读进度一并清除。` })
+      await load()
+    } catch (e) {
+      setPendingDelete(null)
+      setNotice({
+        kind: 'failed',
+        text: e instanceof ApiError ? e.message : `删除《${title}》失败，请稍后重试。`,
+      })
+    } finally {
+      setDeleting(null)
+    }
+  }
 
   async function onPickFile(e: React.ChangeEvent<HTMLInputElement>) {
     const file = e.target.files?.[0]
@@ -235,16 +276,77 @@ export default function LibraryView() {
             </div>
           )}
 
+          {notice && (
+            <div
+              className={'parse-bar' + (notice.kind === 'done' ? ' done' : ' failed')}
+              role="status"
+            >
+              <span>{notice.text}</span>
+              <button className="btn btn-ghost btn-sm parse-open" onClick={() => setNotice(null)}>
+                知道了
+              </button>
+            </div>
+          )}
+
           {!loading && !error && books.length > 0 && (
             <div className="book-grid">
               {books.map((b) => (
                 <article
                   key={b.docId}
                   className="book-card"
-                  onClick={() => navigate(`/read/${b.docId}`)}
+                  // 处于确认删除状态时整卡不再充当"打开这本书"的入口，避免误触跳转
+                  onClick={() => {
+                    if (pendingDelete !== b.docId) navigate(`/read/${b.docId}`)
+                  }}
                 >
                   <div className="book-cover" style={{ background: coverColorFor(b.docId) }}>
                     <span>{b.title}</span>
+
+                    {/* 删除入口只给「全部书籍」：其余分类是"最近阅读""我的书签"这类视图，
+                        在那里删书会跟当前视图的语义打架 */}
+                    {nav === 'all' && pendingDelete !== b.docId && (
+                      <button
+                        className="book-del"
+                        title={`删除《${b.title}》`}
+                        aria-label={`删除《${b.title}》`}
+                        onClick={(e) => {
+                          e.stopPropagation()
+                          setNotice(null)
+                          setPendingDelete(b.docId)
+                        }}
+                      >
+                        删除
+                      </button>
+                    )}
+
+                    {nav === 'all' && pendingDelete === b.docId && (
+                      <div className="book-del-confirm">
+                        <p className="book-del-ask">删除《{b.title}》？</p>
+                        <p className="book-del-note">正文、书签与阅读进度一并清除，不可恢复。</p>
+                        <div className="book-del-actions">
+                          <button
+                            className="btn btn-sm book-del-danger"
+                            disabled={deleting === b.docId}
+                            onClick={(e) => {
+                              e.stopPropagation()
+                              void onDeleteBook(b.docId, b.title)
+                            }}
+                          >
+                            {deleting === b.docId ? '正在删除…' : '确认删除'}
+                          </button>
+                          <button
+                            className="btn btn-ghost btn-sm"
+                            disabled={deleting === b.docId}
+                            onClick={(e) => {
+                              e.stopPropagation()
+                              setPendingDelete(null)
+                            }}
+                          >
+                            取消
+                          </button>
+                        </div>
+                      </div>
+                    )}
                   </div>
                   <div className="book-meta">
                     <div className="book-title" title={b.title}>{b.title}</div>
