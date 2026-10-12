@@ -1,4 +1,4 @@
-import { api } from '../../../api/client'
+import { api, type TtsVoice, type TtsVoiceDetail, type TtsVoicesResponse } from '../../../api/client'
 import { BrowserTtsEngine } from './browserTts'
 import { ServerTtsEngine } from './serverTts'
 import type { TtsEngine, VoiceOption } from './types'
@@ -10,7 +10,16 @@ export interface EngineOption {
   label: string
   available: boolean
   realAudio: boolean
+  /**
+   * **可用**音色。喂给引擎，也用于"原来选的音色不在新引擎里就退到第一个"。
+   * 本机没装的离线音色包**不在**这里 —— 它们只在 voiceCatalog 里露脸。
+   */
   voices: VoiceOption[]
+  /**
+   * 界面用的完整音色目录，含本机没装的（available=false，置灰）。
+   * 浏览器原生那条没有"离线包"这个概念，它就等于 voices。
+   */
+  voiceCatalog: VoiceOption[]
 }
 
 export interface EnginesLoadResult {
@@ -30,6 +39,34 @@ const BROWSER_OPTION = (): EngineOption => {
     available: true,
     realAudio: false,
     voices: e.voices,
+    // 浏览器原生没有"离线音色包"这回事，系统装了哪些中文嗓音就是哪些
+    voiceCatalog: e.voices,
+  }
+}
+
+/** 上游此刻能合成的音色：用目录里的中文名/性别把它标得更清楚些 */
+function toVoiceOption(v: TtsVoice, catalog: TtsVoicesResponse | null): VoiceOption {
+  const hit = catalog?.voices.find((c) => c.voice === v.voice)
+  return {
+    voice: v.voice,
+    label: hit?.label ?? v.label,
+    lang: hit?.lang ?? v.lang,
+    gender: hit?.gender,
+    chinese: hit?.chinese ?? v.lang.toLowerCase().startsWith('zh'),
+    available: true,
+  }
+}
+
+/** 目录里有、本机没装的：置灰列出来，让读者知道是"没装"而不是"没有" */
+function toMissingOption(v: TtsVoiceDetail): VoiceOption {
+  return {
+    voice: v.voice,
+    label: v.label,
+    lang: v.lang,
+    gender: v.gender,
+    chinese: v.chinese,
+    available: false,
+    note: v.note ?? '需安装离线音色包',
   }
 }
 
@@ -42,16 +79,37 @@ export async function loadEngines(): Promise<EnginesLoadResult> {
   const browser = BROWSER_OPTION()
 
   try {
-    const res = await api.listTtsEngines()
+    // 音色目录拉不到不算致命：退回"只有上游报的音色"，界面上少几个置灰项而已
+    const [res, catalog] = await Promise.all([
+      api.listTtsEngines(),
+      api.listTtsVoices().catch(() => null),
+    ])
+
+    // 本机没装的中文音色。只挑中文的 —— 本项目正文都是中文，
+    // 再把英日音的置灰项列进来只会把下拉撑长，没有用处。
+    const missingZh = (catalog?.voices ?? [])
+      .filter((v) => !v.available && v.chinese)
+      .map(toMissingOption)
+
+    const localUp = catalog?.engineAvailable ?? false
+
     const usable: EngineOption[] = res.engines
       .filter((e) => e.available)
-      .map((e) => ({
-        id: e.engine,
-        label: e.label,
-        available: true,
-        realAudio: e.engine !== 'browser-native',
-        voices: e.voices,
-      }))
+      .map((e) => {
+        const voices = e.voices.map((v) => toVoiceOption(v, catalog))
+        // 本地引擎活着 → 挂它名下；本地引擎没起来（它按契约 §9.1 不进列表）→
+        // 挂到浏览器原生那条上。否则读者在降级状态下只会看到寥寥几个系统嗓音，
+        // 既不知道有更好的中文音色，也不知道是"没装包"而不是"没有"
+        const attach = catalog?.engine === e.engine ? localUp : !localUp
+        return {
+          id: e.engine,
+          label: e.label,
+          available: true,
+          realAudio: e.engine !== 'browser-native',
+          voices,
+          voiceCatalog: attach ? [...voices, ...missingZh] : voices,
+        }
+      })
 
     // 浏览器原生永远垫底，作为兜底
     if (!usable.some((o) => o.id === browser.id)) usable.push(browser)

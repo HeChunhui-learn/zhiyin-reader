@@ -1,6 +1,37 @@
 import type { ReadAlongApi } from '../features/readalong/useReadAlong'
+import type { VoiceOption } from '../features/readalong/engines'
 
 export const RATES = [0.5, 0.75, 1.0, 1.25, 1.5, 2.0]
+
+/** 中文音色排在前面 —— 本项目的正文都是中文。chinese 未知时退回看 lang */
+function isChinese(v: VoiceOption): boolean {
+  return v.chinese ?? (v.lang ?? '').toLowerCase().startsWith('zh')
+}
+
+/**
+ * 选项文字。本机没装的挂上原因（契约 §9.4），
+ * 否则读者只会看到一个不能点的灰条，不知道该怎么办。
+ */
+function voiceLabel(v: VoiceOption): string {
+  return v.available === false && v.note ? `${v.label} — ${v.note}` : v.label
+}
+
+function VoiceGroup({ label, items }: { label: string; items: VoiceOption[] }) {
+  return (
+    <optgroup label={label}>
+      {items.map((v) => (
+        <option
+          key={v.voice}
+          value={v.voice}
+          disabled={v.available === false}
+          title={v.available === false ? v.note : v.label}
+        >
+          {voiceLabel(v)}
+        </option>
+      ))}
+    </optgroup>
+  )
+}
 
 interface Props {
   total: number
@@ -10,6 +41,12 @@ interface Props {
 export default function PlaybackBar({ total, ra }: Props) {
   const noSentence = total === 0
   const busy = !ra.ready
+
+  // 渲染用完整目录；万一目录没取到（服务端 §9.4 那条挂了），退回可用音色，界面照常能用
+  const catalog = ra.voiceCatalog.length > 0 ? ra.voiceCatalog : ra.voiceOptions
+  const missing = catalog.filter((v) => v.available === false)
+  const zhVoices = catalog.filter(isChinese)
+  const otherVoices = catalog.filter((v) => !isChinese(v))
 
   return (
     <footer className="playbar">
@@ -61,11 +98,8 @@ export default function PlaybackBar({ total, ra }: Props) {
           disabled={ra.voiceOptions.length === 0}
         >
           {ra.voiceOptions.length === 0 && <option value="">（无可用音色）</option>}
-          {ra.voiceOptions.map((v) => (
-            <option key={v.voice} value={v.voice}>
-              {v.label}
-            </option>
-          ))}
+          {zhVoices.length > 0 && <VoiceGroup label="中文音色" items={zhVoices} />}
+          {otherVoices.length > 0 && <VoiceGroup label="其他语言" items={otherVoices} />}
         </select>
       </label>
 
@@ -85,6 +119,16 @@ export default function PlaybackBar({ total, ra }: Props) {
             ))}
           </select>
         </label>
+      )}
+
+      {/* 灰色音色得有个说法，否则读者不知道那几条为什么点不动（契约 §9.4） */}
+      {missing.length > 0 && (
+        <span
+          className="pb-note"
+          title="这些音色在音色目录里，但这台机器还没装对应的离线音色包"
+        >
+          {missing.length} 个音色需安装离线音色包
+        </span>
       )}
 
       {ra.degraded && (

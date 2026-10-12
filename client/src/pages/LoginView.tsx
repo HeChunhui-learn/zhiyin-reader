@@ -2,6 +2,8 @@ import { useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { ApiError } from '../api/client'
 import { useSession } from '../state/session'
+import AppLogo from '../features/brand/AppLogo'
+import InkLandscape from '../features/brand/InkLandscape'
 
 type Tab = 'login' | 'register'
 
@@ -72,9 +74,18 @@ export default function LoginView() {
   return (
     <div className="login-page">
       <div className="login-brand">
-        <div className="login-brand-logo">知音漫卷</div>
-        <p className="login-brand-slogan">把插图放回文字里，把朗读对上句子</p>
-        <div className="login-brand-figure" />
+        <div className="login-brand-head">
+          <AppLogo size={56} />
+          <div>
+            <div className="login-brand-logo">知音漫卷</div>
+            <p className="login-brand-sub">图文混排 · 逐句跟读 · 跨设备续读</p>
+          </div>
+        </div>
+
+        <p className="login-brand-slogan">高山流水遇知音</p>
+        <p className="login-brand-slogan-note">写意山水 · 与君共读</p>
+
+        <InkLandscape width={380} />
       </div>
 
       <div className="login-panel">

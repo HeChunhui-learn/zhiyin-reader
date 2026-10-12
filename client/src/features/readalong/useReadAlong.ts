@@ -8,6 +8,7 @@ import {
   type EnginesLoadResult,
   type TtsEngine,
 } from './engines'
+import { readReadAlongPrefs, writeReadAlongPrefs } from './readAlongPrefs'
 
 /**
  * 逐句跟读的编排。
@@ -31,7 +32,13 @@ export interface ReadAlongApi {
   voice: string
   engineId: string
   engineOptions: EngineOption[]
+  /** 可选的音色 */
   voiceOptions: EngineOption['voices']
+  /**
+   * 界面渲染用的完整音色目录，**含本机没装的**（available=false，置灰）。
+   * 契约 §9.4：让读者分得清"这个引擎没这个音色"和"我还没装这个离线包"。
+   */
+  voiceCatalog: EngineOption['voices']
   /** 当前引擎是否有真实音频事件（false = 浏览器原生降级） */
   realAudio: boolean
   /** 服务端有引擎但不可用，界面上要说明为什么降级了 */
@@ -52,10 +59,15 @@ export interface ReadAlongApi {
 }
 
 export function useReadAlong(docId: string, sentences: Sentence[]): ReadAlongApi {
+  /** 上次用的引擎/音色/语速，只在挂载时读一次；之后以 state 为准 */
+  const stored = useMemo(readReadAlongPrefs, [])
+
   const [engines, setEngines] = useState<EnginesLoadResult | null>(null)
   const [engineId, setEngineId] = useState('')
-  const [voice, setVoice] = useState('')
-  const [rate, setRateState] = useState(1)
+  // 初值取上次用的音色/语速（R7-1）；state 名保持 setRateState，
+  // 因为对外暴露的 setRate 是下面那个 useCallback（C3）
+  const [voice, setVoice] = useState(stored.voice)
+  const [rate, setRateState] = useState(stored.rate)
   const [playing, setPlaying] = useState(false)
   const [cursor, setCursor] = useState(0)
   const [autoScroll, setAutoScroll] = useState(true)
@@ -85,16 +97,20 @@ export function useReadAlong(docId: string, sentences: Sentence[]): ReadAlongApi
     void loadEngines().then((res) => {
       if (!alive) return
       setEngines(res)
-      setEngineId(res.defaultId)
+      // 上次用的引擎这次还在，就接着用；不在（换机器、离线包卸了）才退回默认
+      setEngineId(
+        res.options.some((o) => o.id === stored.engineId) ? stored.engineId : res.defaultId,
+      )
     })
     return () => {
       alive = false
     }
-  }, [])
+  }, [stored])
 
   const engineOptions = engines?.options ?? []
   const currentOption = engineOptions.find((o) => o.id === engineId)
   const voiceOptions = currentOption?.voices ?? []
+  const voiceCatalog = currentOption?.voiceCatalog ?? []
 
   /* 换引擎后如果原来的音色不在新引擎里，退到第一个 */
   useEffect(() => {
@@ -102,6 +118,12 @@ export function useReadAlong(docId: string, sentences: Sentence[]): ReadAlongApi
     if (currentOption.voices.some((v) => v.voice === voice)) return
     setVoice(currentOption.voices[0]?.voice ?? '')
   }, [currentOption, voice])
+
+  /* 记住选择，下次进阅读界面不用重挑。voice 为空说明清单还没落定，先别写 */
+  useEffect(() => {
+    if (!engineId || !voice) return
+    writeReadAlongPrefs({ engineId, voice, rate })
+  }, [engineId, voice, rate])
 
   const engine: TtsEngine | null = useMemo(
     () => (engineId ? createEngine(engineId, docId, engineOptions) : null),
@@ -238,6 +260,7 @@ export function useReadAlong(docId: string, sentences: Sentence[]): ReadAlongApi
     engineId,
     engineOptions,
     voiceOptions,
+    voiceCatalog,
     realAudio: currentOption?.realAudio ?? false,
     degraded: engines?.serverEngineDown ?? false,
 

@@ -9,14 +9,23 @@
  */
 
 export const DB_NAME = 'zhiyin-cache'
-export const DB_VERSION = 3
+export const DB_VERSION = 4
 
 export const STORE_IMAGES = 'images'
 export const STORE_AUDIO = 'audio'
 /** 离线待同步队列：网络失败时把变更记在这里，下次同步补报（契约 §6.3、§8） */
 export const STORE_PENDING = 'pending'
+/**
+ * 阅读背景图（R7-3）。读者自己挑的壁纸，只有一条记录。
+ * 二进制**不上传服务端** —— 它是读者偏好，不是文档内容，不该跟着文档走。
+ */
+export const STORE_READER_BG = 'readerbg'
 
-export type StoreName = typeof STORE_IMAGES | typeof STORE_AUDIO | typeof STORE_PENDING
+export type StoreName =
+  | typeof STORE_IMAGES
+  | typeof STORE_AUDIO
+  | typeof STORE_PENDING
+  | typeof STORE_READER_BG
 
 let dbPromise: Promise<IDBDatabase | null> | null = null
 
@@ -53,6 +62,10 @@ export function openCacheDb(): Promise<IDBDatabase | null> {
         const s = db.createObjectStore(STORE_PENDING, { keyPath: 'id' })
         s.createIndex('docId', 'docId', { unique: false })
         s.createIndex('at', 'at', { unique: false })
+      }
+      if (!db.objectStoreNames.contains(STORE_READER_BG)) {
+        // 只有一条记录，固定主键，换图即覆盖，不留孤儿
+        db.createObjectStore(STORE_READER_BG, { keyPath: 'id' })
       }
     }
 

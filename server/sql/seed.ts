@@ -9,9 +9,48 @@
  * （CLAUDE.md 裁决 1：解析在前端，服务端只存）。
  */
 import { createHash } from 'node:crypto'
+import { existsSync, mkdirSync, writeFileSync } from 'node:fs'
+import { join } from 'node:path'
 import { makeSalt, hashPassword } from '../src/auth/password'
 import { dal, newId, now } from '../src/dao'
-import { closeDb, getDb, initDb, isEmpty } from '../src/db'
+import { closeDb, getDb, initDb, isEmpty, SERVER_ROOT } from '../src/db'
+
+/**
+ * 演示账号的默认头像：128×128，品牌蓝的圆底上一重山一道水，与 features/brand/AppLogo 同源。
+ * 2.1KB 的 PNG 直接嵌在源码里 —— 种子脚本要能在任何机器上跑出同样的结果，
+ * 外挂一个图片文件就多一处"文件没跟着走"的可能。
+ */
+const DEMO_AVATAR_PNG_B64 =
+  'iVBORw0KGgoAAAANSUhEUgAAAIAAAACACAMAAAD04JH5AAAAflBMVEUfR570+P4xZs+Rqty3' +
+  'ye8iSaBOcLpuj9IYPpQ1bNhUecU4c+MjS6I4c+MhSaAbPpAdP4+zx+2Xr+Hh6/0dP49Nb7eU' +
+  'q9tzkM6BnNT///+yxe1Ze8EyaNA9ffMpVrM6ducAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA' +
+  'AAAAAABH40WWAAAAIHRSTlP+/vz+/gf+/vkL/pmYS0sKlgQFCU0HugpEQo+1/gD+/nqyqBwA' +
+  'AAVlSURBVHjaxVvZgqsqEGyJSFwzmZz1Xpf//8vToLiCNopaTzMuVNFd3ZoEoNqDOE9TxljT' +
+  'Af9M0zzeNRQ434HcjQWo4mQBecqaDTBHEeDC3hDhooEqIN6e+zQOsVcB9Mk7hwFOoidLgNPo' +
+  'iRJgM/fNIWx6YUNA3hxGfkBAzhoPYPleAWnjCekuATFrvIHF7gLyxityVwFp4xmpmwDv/FYF' +
+  'ZgGsOQGMLuAUfosCuI7frAAu5DcqgCv5TQrgUn6DAji//tarES7mXyiAM/svpStPBMTNJYit' +
+  'Atg1AphZQFzJT1uXIK3ipYAY338uQz4o0ALiOGYXAunmAqq0vBBDEkDzx+WliLUCuCUAoxCA' +
+  'dmB5MbQP4Z4ADCGAmwLQhwBuCkAfArgrADoEcFcAdAjghh4w6QVwWwC6EIB6CtwjQD0R4C4L' +
+  'ahvCfRlocwC3WbCzIdyYAZUDcM9AkjCPOQD3GggDbwqwDsDZAmEQBGKqgIlQsJ0mAEcLsEcQ' +
+  'LBTIYw/GdpkA3CzQ8Y8VsLI7JnaZAJws0PPLGXeHklAfCt29wdCE+/i1AiaC8bHSVYKTgCmZ' +
+  'UjCRJIPgasYY8r38yNaWxBSOQcgh3c2PCpb8yp8OElKyAAO/DS5mTIF553fKAyMKYEnghJCa' +
+  'B6IAt/m3QaDlgQExAGImQeCREZJJOSbyJNEINAElsPkMExg+7cOsHYSlPEkdmYCyNlggqXV4' +
+  '6mWCBJ6kfVVBEVCC0YICSjnNunyYLFCz0peAsrZYEBWgiSwnQ1TmR0AJ1hJ41Obpa5eUXgTA' +
+  'Y6XWVstTUPIL9RYewW7ICG0ND3AeP4LAvy6gDA4igUMCIDgMARsCspWzSeABj1UB2YoA8MK/' +
+  'kYYMCiu/CHxhJQ0F8PP519LAbQK88mNjBrsA4yl4BJ5hNgLSV9kl/BYjZPjZ0ODCKDgDpjQU' +
+  'KMBgAvE4BcJggQq4wQRwDkwWQBNWWX0bskoKKO4TUCgB/D4BSI4mvC8HmAFZBffloGgFcA4n' +
+  'kqyVBVLLr+u95mBRd5D0UO1F9P9GMgOtAC6v3RcGmHC2fIooNH97Mcan+rQ/2fyu/o+W0TIH' +
+  'r142F2gpDYx4KBx3wkirU/hVvbvfjD7VX319f10SWd+T5EnLJIcBou2OKi3Y/Wz3Xf0iRMz8' +
+  'hFGcSGmK4WYNagFYiTqcURR1QQrN0NFEGE3nVIP9T7dtIfh5wDg0obGAYudgVDEWB/Q/32MI' +
+  'Ds/eKVI6AIMA7kxrPxMNsF3LZwJWQjDqOcszSJGgJVvHblRLiNdp9/YBGARwTpy9pGwZp8Or' +
+  '8WWBPJJRBPSxmcLP5z1fxtOV4nLu0WiW8wklpmLc0o+q/mDrWSxkelf/zUp+2XJwPomiPPZy' +
+  'OCRgIuD9nrUc0cfT85uqfAwb1pLNbfBUOOHteMw/WcxmsMEZKEYJmK2m29WOjhhgsaBxQ8GQ' +
+  'k2XHmTUda/Zm/HMBi27QjtORqS/G1x6V4+elEF2RDsMsDLBcU8qrV3etLlkher5+ZJFMpjxv' +
+  'wb3O0W3qnnrUgm2ran9Wv+c3d1PBTvwk1cazu+QpX+B04LoR30MHsq0r/q6+5SRbSsl5uBaf' +
+  'g+afOMHNldUvlYVTOgAmmLK23OHR7MrPaavr8cIT+kFm5DfvL8ALM//9x8hv2WHBvXflouLc' +
+  'aZOLZyOYw7+6zcenETI7/8pGJ7yl8BV+O//aVi9MGvcgoeC29G9vdsP7juYh42vT39zuJ6UX' +
+  'ByRkRbU6fcKGxyMSCPSULZ97JZDoaZte+Q4vqNxzwuC0bb9KAj0MWUGlp298VsORNCh2Kr3L' +
+  '1u/XSz3MXz++vp4WfH39eI0u9b/5/aVFLFVI7tf4Gir+AToazXxBgmJpAAAAAElFTkSuQmCC'
 
 const DEMO_USER_ID = 'u_demo'
 /** 演示账号的密码。写在这里是为了让"跑完 seed 就能登录进去看演示书" */
@@ -73,6 +112,15 @@ function wipeDemo(): void {
 function main(): void {
   initDb()
   const force = process.argv.includes('--force')
+
+  /*
+   * 演示头像单独补一次，不受下面"库里有数据就跳过"的约束。
+   *
+   * 否则老库（R7-5 之前建的）永远不会有机会拿到这张头像 ——
+   * 想拿到就得 --force，而那会把读者自己导入的书一起删掉，
+   * 为了一个默认头像付这个代价不合适。头像本身是 upsert，重复跑无害。
+   */
+  if (dal.getUserById(DEMO_USER_ID)) seedDemoAvatar(DEMO_USER_ID)
 
   if (force) {
     wipeDemo()
@@ -166,10 +214,26 @@ function main(): void {
     })
   })
 
+  seedDemoAvatar(DEMO_USER_ID)
+
   console.log(`已灌入演示数据：1 个用户、2 篇文档（${PARAS.length} 段 + ${BIG_PARAS.length} 段 50 书签）`)
   console.log(`文档 id：${doc.doc_id}`)
   console.log(`演示账号：${DEMO_ACCOUNT} ／ ${DEMO_PASSWORD}`)
   closeDb()
+}
+
+/**
+ * 给演示账号放一张默认头像（R7-5）。
+ *
+ * 图片直接嵌在源码里而不是外挂一个二进制文件：种子脚本要能在任何一台机器上
+ * 原样跑出同样的结果，多带一个资源文件就多一处"文件没跟着走"的可能。
+ * 才 433 字节，不值得为它建个 assets 目录。
+ */
+function seedDemoAvatar(userId: string): void {
+  const dir = join(SERVER_ROOT, 'data', 'avatars')
+  if (!existsSync(dir)) mkdirSync(dir, { recursive: true })
+  writeFileSync(join(dir, `${userId}.png`), Buffer.from(DEMO_AVATAR_PNG_B64, 'base64'))
+  dal.setUserAvatar(userId, '/api/users/me/avatar', now())
 }
 
 main()

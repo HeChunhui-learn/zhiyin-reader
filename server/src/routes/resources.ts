@@ -3,7 +3,7 @@ import { existsSync, mkdirSync, readFileSync, writeFileSync, unlinkSync } from '
 import { extname, join } from 'node:path'
 import type { FastifyInstance, FastifyRequest } from 'fastify'
 import { requireUserId } from '../auth/require'
-import { dal } from '../dao'
+import { dal, now } from '../dao'
 import { SERVER_ROOT } from '../db'
 import { ApiError, E } from '../errors'
 
@@ -15,6 +15,11 @@ import { ApiError, E } from '../errors'
 
 const IMAGE_DIR = join(SERVER_ROOT, 'data', 'images')
 const FILE_DIR = join(SERVER_ROOT, 'data', 'files')
+/** 头像（R7-5）。按 userId 命名，一人一份 */
+const AVATAR_DIR = join(SERVER_ROOT, 'data', 'avatars')
+
+/** 契约 §3.6：头像上限比正文插图小一档 —— 它是个几十像素的圆，用不着 10MB */
+const MAX_AVATAR_BYTES = 2 * 1024 * 1024
 
 /** 只允许这些图片类型，避免变成任意文件上传 */
 const MIME_EXT: Record<string, string> = {
@@ -38,6 +43,13 @@ const EXT_MIME: Record<string, string> = {
 
 /** 契约 §5：单张图片上限 10MB */
 const MAX_IMAGE_BYTES = 10 * 1024 * 1024
+
+/**
+ * 原始文件上限（R7-4）。以前这里**完全没有上限**，实际能传多大
+ * 完全取决于 Fastify 的 bodyLimit —— 那是全局值，改它会连带放宽
+ * 所有接口。这里补一条自己的，与 index.ts 的 BODY_LIMIT 对齐。
+ */
+const MAX_FILE_BYTES = 100 * 1024 * 1024
 
 function ensureDir(p: string): void {
   if (!existsSync(p)) mkdirSync(p, { recursive: true })
@@ -151,6 +163,7 @@ export default async function resourceRoutes(app: FastifyInstance) {
 
       const body = req.body
       if (!Buffer.isBuffer(body) || body.length === 0) throw E.validation(['body'])
+      if (body.length > MAX_FILE_BYTES) throw E.payloadTooLarge()
 
       ensureDir(FILE_DIR)
       const ext = extname(doc.file_name) || '.bin'
@@ -191,7 +204,69 @@ export default async function resourceRoutes(app: FastifyInstance) {
     },
   )
 
+  /* ------------------------------- 契约 §3.6 头像上传 / 读取 / 移除 */
+
+  /** 换头像时旧扩展名可能还在，按 key 找现有的那份 */
+  function findAvatar(userId: string): { path: string; mime: string } | null {
+    for (const ext of Object.keys(EXT_MIME)) {
+      const p = join(AVATAR_DIR, `${userId}${ext}`)
+      if (existsSync(p)) return { path: p, mime: EXT_MIME[ext] }
+    }
+    return null
+  }
+
+  app.put('/api/users/me/avatar', async (req, reply) => {
+    const userId = requireUserId(req)
+
+    const body = req.body
+    if (!Buffer.isBuffer(body) || body.length === 0) throw E.validation(['body'])
+    if (body.length > MAX_AVATAR_BYTES) throw E.payloadTooLarge()
+
+    const mime = String(req.headers['content-type'] ?? '').split(';')[0].trim()
+    const ext = MIME_EXT[mime]
+    if (!ext) {
+      throw new ApiError(415, 'UNSUPPORTED_MEDIA_TYPE', `不支持的图片类型：${mime || '未知'}`, {
+        mime,
+      })
+    }
+
+    ensureDir(AVATAR_DIR)
+    const old = findAvatar(userId)
+    if (old) unlinkSync(old.path)
+    writeFileSync(join(AVATAR_DIR, `${userId}${ext}`), body)
+
+    const avatarUrl = '/api/users/me/avatar'
+    dal.setUserAvatar(userId, avatarUrl, now())
+    return reply.code(200).send({ avatarUrl, bytes: body.length })
+  })
+
+  app.get('/api/users/me/avatar', async (req, reply) => {
+    const userId = requireUserId(req)
+    const found = findAvatar(userId)
+    if (!found) throw E.notFound()
+
+    // 头像换得勤，用短一点的缓存并带上 ETag 让浏览器自己判重
+    const bytes = readFileSync(found.path)
+    const etag = `"${createHash('sha1').update(bytes).digest('hex').slice(0, 20)}"`
+    if (req.headers['if-none-match'] === etag) return reply.code(304).send()
+
+    reply
+      .header('Content-Type', found.mime)
+      .header('ETag', etag)
+      .header('Cache-Control', 'private, no-cache')
+    return reply.send(bytes)
+  })
+
+  app.delete('/api/users/me/avatar', async (req) => {
+    const userId = requireUserId(req)
+    const found = findAvatar(userId)
+    if (found) unlinkSync(found.path)
+    dal.setUserAvatar(userId, null, now())
+    return { avatarUrl: null as string | null }
+  })
+
   /* ------------------------------- 启动时确保目录存在 */
   ensureDir(IMAGE_DIR)
   ensureDir(FILE_DIR)
+  ensureDir(AVATAR_DIR)
 }

@@ -3,13 +3,15 @@ import { useNavigate } from 'react-router-dom'
 import { ApiError, api, type BookmarkDto } from '../api/client'
 import { parseFile } from '../features/parse'
 import { cachePut } from '../features/render/imageCache'
+import UserAvatar from '../features/profile/UserAvatar'
 import { useSession } from '../state/session'
 
-type NavKey = 'all' | 'recent' | 'bookmarks' | 'offline'
+type NavKey = 'all' | 'recent' | 'favorite' | 'bookmarks' | 'offline'
 
 const NAV: { key: NavKey; label: string; category: string }[] = [
   { key: 'all', label: '全部书籍', category: 'all' },
   { key: 'recent', label: '最近阅读', category: 'recent' },
+  { key: 'favorite', label: '我的收藏', category: 'favorite' },
   { key: 'bookmarks', label: '我的书签', category: 'bookmarked' },
   { key: 'offline', label: '离线文档', category: 'offline' },
 ]
@@ -60,6 +62,8 @@ export default function LibraryView() {
   const [bmPage, setBmPage] = useState(1)
   const [bmTotal, setBmTotal] = useState(0)
   const [bmError, setBmError] = useState('')
+  /** 正在切换收藏状态的那本书（防连点） */
+  const [busyFav, setBusyFav] = useState<string | null>(null)
 
   const fileRef = useRef<HTMLInputElement>(null)
   const navigate = useNavigate()
@@ -150,6 +154,32 @@ export default function LibraryView() {
     }
   }
 
+  /**
+   * 切换收藏。
+   *
+   * 先乐观改本地再发请求 —— 收藏是个高频小动作，等一个来回才亮星星会显得很钝。
+   * 失败就改回来并给回执；在「我的收藏」视图里成功取消收藏后要重新拉一次列表，
+   * 否则那本已经不属于当前视图的书会赖在界面上。
+   */
+  async function onToggleFavorite(docId: string, next: boolean) {
+    setBusyFav(docId)
+    setNotice(null)
+    setBooks((prev) => prev.map((b) => (b.docId === docId ? { ...b, isFavorite: next } : b)))
+    try {
+      if (next) await api.addFavorite(docId)
+      else await api.removeFavorite(docId)
+      if (nav === 'favorite') await load()
+    } catch (e) {
+      setBooks((prev) => prev.map((b) => (b.docId === docId ? { ...b, isFavorite: !next } : b)))
+      setNotice({
+        kind: 'failed',
+        text: e instanceof ApiError ? e.message : '收藏操作失败，请稍后重试。',
+      })
+    } finally {
+      setBusyFav(null)
+    }
+  }
+
   async function onPickFile(e: React.ChangeEvent<HTMLInputElement>) {
     const file = e.target.files?.[0]
     e.target.value = ''
@@ -226,7 +256,16 @@ export default function LibraryView() {
           onChange={onPickFile}
         />
         <div className="shelf-user">
-          <span>{user.nickname}</span>
+          {/* 右上角的圆形头像：点它进个人主页 */}
+          <button
+            className="shelf-avatar"
+            title="个人主页"
+            aria-label="个人主页"
+            onClick={() => navigate('/profile')}
+          >
+            <UserAvatar avatarUrl={user.avatarUrl} name={user.nickname || user.account} size={34} />
+          </button>
+          <span className="shelf-user-name">{user.nickname}</span>
           <button
             className="btn btn-ghost btn-sm"
             onClick={async () => {
@@ -250,6 +289,10 @@ export default function LibraryView() {
               {n.label}
             </button>
           ))}
+          {/* 阅读时长是独立页面，不是书架的一个分类，所以不放进 NAV 里 */}
+          <button className="side-item side-item-link" onClick={() => navigate('/stats')}>
+            阅读时长
+          </button>
           <div className="sync-badge sync-ok">已同步</div>
         </aside>
 
@@ -372,16 +415,22 @@ export default function LibraryView() {
           {nav !== 'bookmarks' && !loading && !error && books.length === 0 && (
             <div className="shelf-empty">
               <p>
+                {/* 没有 bookmarks 分支：上面那层已经把它排除了，
+                    书签总览自带空状态（见上面的 marks-overview） */}
                 {keyword
                   ? '没有匹配的文档'
-                  : nav === 'offline'
-                    ? '这里恒为空'
-                    : '书架还是空的'}
+                  : nav === 'favorite'
+                    ? '还没有收藏任何书'
+                    : nav === 'offline'
+                      ? '这里恒为空'
+                      : '书架还是空的'}
               </p>
               <p className="muted">
-                {nav === 'offline'
-                  ? '"有本地副本"是纯客户端状态，服务端不可知（材料审查 O21）'
-                  : '点右上角「导入文档」，选一个 EPUB / TXT / Markdown 文件试试'}
+                {nav === 'favorite'
+                  ? '把鼠标移到书封面上，点亮左上角的 ☆ 就收藏了'
+                  : nav === 'offline'
+                    ? '"有本地副本"是纯客户端状态，服务端不可知（材料审查 O21）'
+                    : '点右上角「导入文档」，选一个 EPUB / TXT / Markdown 文件试试'}
               </p>
             </div>
           )}
@@ -411,6 +460,22 @@ export default function LibraryView() {
                 >
                   <div className="book-cover" style={{ background: coverColorFor(b.docId) }}>
                     <span>{b.title}</span>
+
+                    {/* 收藏入口所有分类下都给：它只改"这本收没收藏"，
+                        不像删除那样会跟当前视图的语义打架 */}
+                    <button
+                      className={'book-fav' + (b.isFavorite ? ' on' : '')}
+                      title={b.isFavorite ? `取消收藏《${b.title}》` : `收藏《${b.title}》`}
+                      aria-label={b.isFavorite ? '取消收藏' : '收藏'}
+                      aria-pressed={b.isFavorite}
+                      disabled={busyFav === b.docId}
+                      onClick={(e) => {
+                        e.stopPropagation()
+                        void onToggleFavorite(b.docId, !b.isFavorite)
+                      }}
+                    >
+                      {b.isFavorite ? '★' : '☆'}
+                    </button>
 
                     {/* 删除入口只给「全部书籍」：其余分类是"最近阅读""我的书签"这类视图，
                         在那里删书会跟当前视图的语义打架 */}

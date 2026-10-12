@@ -18,23 +18,35 @@ import type { Paragraph } from '../../models/types'
 
 /* -------------------------------------------------------------- 估算 */
 
-/** 正文排版是 max-width 720px / font-size 16px，中文一行大约 42 个字 */
+/**
+ * 排版基线：max-width 720px / font-size 16px / line-height 1.9，中文一行大约 42 个字。
+ * 下面所有常量都以这一档为准，其他字号按比例换算 ——
+ * 不传 fontSize 时必须**逐字节复现**原来的估算，否则短文档的观感会被无端改掉。
+ */
+const BASE_FONT_SIZE = 16
 const CHARS_PER_LINE = 42
 const LINE_HEIGHT = 30.4 // font-size 16px × line-height 1.9
 const PARA_GAP = 18
 
-export function estimateHeight(p: Paragraph): number {
+export function estimateHeight(p: Paragraph, fontSize = BASE_FONT_SIZE): number {
+  // 行高与字号成正比；一行能放多少个字与字号成反比
+  const scale = fontSize / BASE_FONT_SIZE
+  const lineHeight = LINE_HEIGHT * scale
+  const charsPerLine = Math.max(1, Math.round(CHARS_PER_LINE / scale))
+
   switch (p.type) {
     case 'h1':
-      return 24 * 1.4 + 48 // 大标题 + 上下外边距
+      // 字号跟着缩放，但上下外边距是 px 定值（app.css 的 .doc-h1 { margin: 26px 0 22px }），不缩放
+      return 24 * 1.4 * scale + 48
     case 'h2':
-      return 18 * 1.4 + 46
+      return 18 * 1.4 * scale + 46
     case 'img':
-      return 200 + 30 // 图片占位 + 图注
+      // 图片占位与字号无关：.figure-holder 是固定的 min-height: 200px
+      return 200 + 30
     default: {
       const len = p.text.length
-      const lines = Math.max(1, Math.ceil(len / CHARS_PER_LINE))
-      return lines * LINE_HEIGHT + PARA_GAP
+      const lines = Math.max(1, Math.ceil(len / charsPerLine))
+      return lines * lineHeight + PARA_GAP
     }
   }
 }
@@ -47,8 +59,11 @@ export interface WindowGeometry {
   offsets: number[]
 }
 
-export function buildGeometry(paragraphs: Paragraph[]): WindowGeometry {
-  const heights = paragraphs.map(estimateHeight)
+export function buildGeometry(
+  paragraphs: Paragraph[],
+  fontSize = BASE_FONT_SIZE,
+): WindowGeometry {
+  const heights = paragraphs.map((p) => estimateHeight(p, fontSize))
   return { heights, offsets: cumulative(heights) }
 }
 

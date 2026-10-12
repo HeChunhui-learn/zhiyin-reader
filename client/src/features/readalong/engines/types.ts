@@ -2,6 +2,17 @@ export interface VoiceOption {
   voice: string
   label: string
   lang: string
+  gender?: 'female' | 'male'
+  /** 是否中文音色；undefined 表示未知（浏览器原生那条路拿不到这个信息） */
+  chinese?: boolean
+  /**
+   * 本机装了没有。undefined / true = 可选。
+   * false 的是"音色目录里有、但这台机器没装离线包"的，界面上置灰不可选
+   * （契约 §9.4）。它们**不会**进 engine.voices，只出现在给界面看的 voiceCatalog 里。
+   */
+  available?: boolean
+  /** 置灰原因，界面上挂成 option 的后缀 */
+  note?: string
 }
 
 export interface SpeakOptions {

@@ -9,14 +9,22 @@ import resourceRoutes from './routes/resources'
 import ttsRoutes from './routes/tts'
 import progressRoutes from './routes/progress'
 import bookmarkRoutes from './routes/bookmarks'
+import readingTimeRoutes from './routes/readingTime'
 import syncRoutes from './routes/sync'
 import healthRoutes from './routes/health'
 
 const PORT = Number(process.env.PORT ?? 3000)
 const HOST = process.env.HOST ?? '0.0.0.0'
 
-/** 导入一篇长文档时正文 JSON 会比较大，默认 1MB 不够 */
-const BODY_LIMIT = 20 * 1024 * 1024
+/**
+ * 单次请求体的上限。默认 1MB 对导入文档来说完全不够。
+ *
+ * R7-4 从 20MB 提到 100MB：20MB 只够中等长度的 TXT，
+ * 带插图的 EPUB 很容易就超（图片本体不随导入上传，但正文 JSON 与
+ * 原始文件是两个大块）。真正的正文规模仍由 documents.ts 的
+ * MAX_PARAGRAPHS 兜底 —— 段落数才是耗内存的那一头。
+ */
+const BODY_LIMIT = 100 * 1024 * 1024
 
 async function main() {
   initDb()
@@ -98,6 +106,7 @@ async function main() {
   await app.register(ttsRoutes)
   await app.register(progressRoutes)
   await app.register(bookmarkRoutes)
+  await app.register(readingTimeRoutes)
   await app.register(syncRoutes)
 
   await app.listen({ port: PORT, host: HOST })

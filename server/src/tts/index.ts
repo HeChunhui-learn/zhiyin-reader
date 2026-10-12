@@ -4,6 +4,7 @@ import { SERVER_ROOT } from '../db'
 import { E } from '../errors'
 import { ttsCacheKey } from './cacheKey'
 import { localProvider, type VoiceInfo } from './providers'
+import { KOKORO_VOICES, MISSING_VOICE_NOTE } from './voiceCatalog'
 
 /**
  * 语音合成的编排：可用性探测、缓存、并发保护。
@@ -83,6 +84,74 @@ export async function listEngines(): Promise<{
         voices: [],
       },
     ],
+  }
+}
+
+/* ------------------------------------------------------------ 音色目录 */
+
+export interface VoiceCatalogItem {
+  voice: string
+  label: string
+  lang: string
+  gender?: 'female' | 'male'
+  /** 是否中文音色。非中文的读中文会走音，界面上要提示 */
+  chinese: boolean
+  /** 本机装了没有 */
+  available: boolean
+  /** 没装时给读者看的原因 */
+  note?: string
+}
+
+/**
+ * 音色目录：把本机**已装**的音色与目录里**存在但没装**的音色一起报给前端，
+ * 前者可选，后者置灰并说明原因（见 voiceCatalog.ts 顶部的注释）。
+ *
+ * 契约 §9.1 规定 available=false 的**引擎**不得进前端列表 —— 那是引擎层面的规矩。
+ * 音色层面不一样：引擎通着、只是缺某个语言包时，把缺的列出来才是如实报告。
+ * 引擎整个没起来时 engineAvailable=false，由前端决定怎么呈现（当前是提示去装离线包）。
+ */
+export async function listVoices(): Promise<{
+  engine: string
+  engineLabel: string
+  engineAvailable: boolean
+  voices: VoiceCatalogItem[]
+}> {
+  const { ok, voices } = await probeLocal()
+  const live = new Set(voices.map((v) => v.voice))
+
+  const items: VoiceCatalogItem[] = KOKORO_VOICES.map((v) => {
+    const installed = ok && live.has(v.voice)
+    return {
+      voice: v.voice,
+      label: v.label,
+      lang: v.lang,
+      gender: v.gender,
+      chinese: v.chinese,
+      available: installed,
+      // 引擎通着却没有这个音色 = 包没装；引擎压根没起来是另一回事，
+      // 那种情况由 engineAvailable 统一说明，不必给每个音色都挂一遍
+      note: installed || !ok ? undefined : MISSING_VOICE_NOTE,
+    }
+  })
+
+  // 上游报了、目录里没有的（换了模型包之类）：原样补进来，别把它们藏掉
+  const known = new Set(KOKORO_VOICES.map((v) => v.voice))
+  for (const v of voices) {
+    if (known.has(v.voice)) continue
+    items.push({
+      voice: v.voice,
+      label: v.label,
+      lang: v.lang,
+      chinese: v.lang.toLowerCase().startsWith('zh'),
+      available: true,
+    })
+  }
+
+  return {
+    engine: localProvider.id,
+    engineLabel: localProvider.label,
+    engineAvailable: ok,
+    voices: items,
   }
 }
 

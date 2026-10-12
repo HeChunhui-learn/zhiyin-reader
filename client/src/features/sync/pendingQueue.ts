@@ -12,7 +12,12 @@ import { STORE_PENDING, tx } from '../cache/db'
 export interface PendingChange {
   id: string
   docId: string
-  kind: 'progress' | 'bookmark'
+  /**
+   * progress / bookmark 两条走 §8 的批量同步；
+   * readingTime（R7-5）不进那套合并机制 —— 它是纯追加的遥测，
+   * 自己补报即可（见 useReadingTime 里的 replayPending）。
+   */
+  kind: 'progress' | 'bookmark' | 'readingTime'
   /** 与 §8.1 请求体里对应集合的元素形状一致 */
   payload: unknown
   at: number
