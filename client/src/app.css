@@ -1578,6 +1578,44 @@ button {
   font-size: 13px;
 }
 
+/* 收起：落在最右端。弱化处理，别跟"跟读"和计数器抢注意力 */
+.pb-collapse {
+  margin-left: 10px;
+  color: var(--muted);
+}
+
+/* 收起后浮在正文底部的胶囊（仿 .book-fav 那类圆形浮标：半透明黑底 + 白字 + 悬停变实）。
+ *
+ * 靠右下角而不是居中：.reader-content 是 max-width 720px 居中的，窗口 ≥1280px 时
+ * 两侧各有近 300px 空白，贴右下角正好落在这片空白里，一个字都压不到。
+ * 居中的话它会正好盖住视口底部那一行正文（试过，很难看）。
+ *
+ * z-index 取 5：压在 .reader-scroll（z-1）之上、目录抽屉（z-20）之下 ——
+ * 抽屉推开时该盖住它，而不是它盖住抽屉。
+ * .toast 是 fixed 的 z-80、停在 bottom:96px，与这里（正文区底部 16px）
+ * 既不重叠也不抢层。 */
+.pb-restore {
+  position: absolute;
+  right: 28px;
+  bottom: 16px;
+  z-index: 5;
+  padding: 8px 16px;
+  border: 1px solid rgba(255, 255, 255, 0.5);
+  border-radius: 999px;
+  background: rgba(0, 0, 0, 0.45);
+  color: #fff;
+  font-size: 13px;
+  white-space: nowrap;
+  cursor: pointer;
+  box-shadow: 0 4px 14px rgba(0, 0, 0, 0.2);
+  transition: background 0.15s;
+}
+
+.pb-restore:hover,
+.pb-restore:focus-visible {
+  background: rgba(0, 0, 0, 0.68);
+}
+
 /* ------------------------------------------------------- 冲突对话框 */
 
 .modal-mask {

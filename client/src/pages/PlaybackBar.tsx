@@ -36,9 +36,12 @@ function VoiceGroup({ label, items }: { label: string; items: VoiceOption[] }) {
 interface Props {
   total: number
   ra: ReadAlongApi
+  /** 收起控制条。状态由 ReaderView 持有 —— 收起后浮出来的那个恢复胶囊
+      要渲染在 PlaybackBar 之外，状态自然归共同父级 */
+  onCollapse: () => void
 }
 
-export default function PlaybackBar({ total, ra }: Props) {
+export default function PlaybackBar({ total, ra, onCollapse }: Props) {
   const noSentence = total === 0
   const busy = !ra.ready
 
@@ -140,6 +143,17 @@ export default function PlaybackBar({ total, ra }: Props) {
       <div className="pb-counter">
         {noSentence ? '无正文' : `第 ${ra.cursor + 1} / ${total} 句`}
       </div>
+
+      {/* 放在 .pb-counter 之后：counter 带 margin-left:auto，它和它后面的一切
+          都被推到右端，收起按钮自然落位最右侧 */}
+      <button
+        className="pb-btn pb-collapse"
+        onClick={onCollapse}
+        title="收起朗读控制条"
+        aria-label="收起朗读控制条"
+      >
+        收起
+      </button>
     </footer>
   )
 }

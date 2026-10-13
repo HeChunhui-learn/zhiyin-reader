@@ -71,6 +71,24 @@ export default function ReaderView() {
   const [dialogOpen, setDialogOpen] = useState(false)
   const [toast, setToast] = useState('')
 
+  /**
+   * 朗读控制条是否收起。
+   *
+   * 收起是读者的显式动作，所以**不做**"播放中自动展开" —— 播出声音来就自己
+   * 弹回去，等于把收起变成一个会自己撤销的开关。跟读在不在跑由胶囊自己报
+   * （"跟读中 · 第 N / M 句"），信息不丢。
+   *
+   * 默认 false（可见）：第一次进阅读页该看见的东西不该藏起来。
+   * 不持久化 —— 换个文档、刷新一次就回到可见，这是想要的行为。
+   */
+  const [barHidden, setBarHidden] = useState(false)
+  const restoreBarRef = useRef<HTMLButtonElement>(null)
+  // 收起按钮一点下去自己就卸载了，键盘读者的焦点会掉到 body 上，
+  // 在长文里得按几十次 Tab 才找得回来。把焦点接到胶囊上。
+  useEffect(() => {
+    if (barHidden) restoreBarRef.current?.focus()
+  }, [barHidden])
+
   const rootRef = useRef<HTMLDivElement>(null)
 
   useEffect(() => {
@@ -746,6 +764,24 @@ export default function ReaderView() {
             )}
           </article>
         </div>
+
+        {/* 收起控制条后浮在正文底部的胶囊，也是唯一的恢复入口。
+            挂在 .reader-body 里而不是 .reader-page 下：.reader-page 没有
+            position:relative，absolute 会去找更外层的定位祖先、跑到页面外边去；
+            .reader-body 才是最近的定位祖先，bottom 也就落在正文区底部。
+            .toast 是 fixed 的 z-80 / bottom:96px，与这里既不重叠也不抢层；
+            .reader-scroll 底部自带 60px 内边距，正文最后一行不会被它盖住 */}
+        {barHidden && (
+          <button
+            ref={restoreBarRef}
+            className="pb-restore"
+            onClick={() => setBarHidden(false)}
+            title="展开朗读控制条"
+            aria-label="展开朗读控制条"
+          >
+            🎧 {ra.playing ? `跟读中 · 第 ${ra.cursor + 1} / ${sentences.length} 句` : '朗读控制条'}
+          </button>
+        )}
       </div>
 
       {(ra.error || bms.error) && (
@@ -766,7 +802,11 @@ export default function ReaderView() {
         </div>
       )}
 
-      <PlaybackBar total={sentences.length} ra={ra} />
+      {/* .playbar 是 flex:none 的普通 flex 子项（不是 fixed），抽掉之后
+          .reader-body 靠 flex:1 自动补满，不需要动任何 padding */}
+      {!barHidden && (
+        <PlaybackBar total={sentences.length} ra={ra} onCollapse={() => setBarHidden(true)} />
+      )}
 
       {dialogOpen && bms.conflicts.length > 0 && (
         <ConflictDialog
