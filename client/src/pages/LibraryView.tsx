@@ -65,6 +65,23 @@ export default function LibraryView() {
   /** 正在切换收藏状态的那本书（防连点） */
   const [busyFav, setBusyFav] = useState<string | null>(null)
 
+  /**
+   * 已展开的文档组。**存"展开集"而不是"折叠集"**：
+   * 需求是"默认全部折叠"，那正好就是空集本身，不需要任何初始化 effect；
+   * 新冒出来的组、翻页翻回来又见到的组，天然也是折叠的。
+   * 反过来存折叠集就得在每次 loadOverview 后把新 docId 补进去，容易漏。
+   *
+   * 翻页时保留：展开是读者的显式动作，翻回来该还是展开的。
+   */
+  const [expandedDocs, setExpandedDocs] = useState<Set<string>>(new Set())
+  /** 正在确认删除的那条书签。与书架的 pendingDelete 同一范式：同一时刻只允许一个 */
+  const [pendingBmDelete, setPendingBmDelete] = useState<string | null>(null)
+  /** 总览页的写操作（改名/删除/批量）进行中，防重复提交 */
+  const [bmBusy, setBmBusy] = useState(false)
+  /** 行内改名的目标与草稿，写法与 BookmarkPanel 一致 */
+  const [renamingId, setRenamingId] = useState('')
+  const [renamingText, setRenamingText] = useState('')
+
   const fileRef = useRef<HTMLInputElement>(null)
   const navigate = useNavigate()
   const { user, ready, logout } = useSession()
@@ -106,6 +123,13 @@ export default function LibraryView() {
     setBmError('')
     try {
       const r = await api.listBookmarksOverview({ page: bmPage, pageSize: 20 })
+      // 当前页被删空了（这一页那几本的书签全被删光，组就整批消失）。
+      // 不兜的话读者停在空白页上，而分页器的"下一页"此时是 disabled 的 —— 进退两难。
+      // 一次退一页，靠上面的 effect 重拉，最终必然落到第 1 页。
+      if (r.groups.length === 0 && bmPage > 1) {
+        setBmPage(bmPage - 1)
+        return
+      }
       setOverview(r.groups)
       setBmTotal(r.total)
     } catch (e) {
@@ -180,6 +204,81 @@ export default function LibraryView() {
     }
   }
 
+  /* ------------------------------------------------ 我的书签：折叠与管理 */
+
+  function toggleGroup(docId: string) {
+    setExpandedDocs((prev) => {
+      const next = new Set(prev)
+      if (next.has(docId)) next.delete(docId)
+      else next.add(docId)
+      return next
+    })
+  }
+
+  /**
+   * 改一条书签的名字（契约 §7.2）。
+   *
+   * 内联编辑，只有 Enter 提交 —— **不要加"保存"按钮**：点保存会让输入框先 blur，
+   * 而 blur 是取消（见下面 input 的 onBlur），结果保存了个寂寞。
+   * BookmarkPanel 里也是这个写法。
+   */
+  async function submitRename(b: BookmarkDto) {
+    const name = renamingText.trim()
+    setRenamingId('')
+    if (!name || name === (b.name ?? '')) return // 没改就别白发一个请求
+    setBmBusy(true)
+    setNotice(null)
+    try {
+      await api.patchBookmark(b.bookmarkId, {
+        name,
+        baseVersion: b.version,
+        updatedAt: new Date().toISOString(),
+      })
+      setNotice({ kind: 'done', text: `已改名为「${shortTitle(name)}」。` })
+    } catch (e) {
+      setNotice({
+        kind: 'failed',
+        // 版本冲突是内部术语，别原样甩给读者
+        text:
+          e instanceof ApiError && e.code === 'SYNC_VERSION_CONFLICT'
+            ? '这条书签已被其他设备改过，改名没有生效。'
+            : '改名失败，请稍后重试。',
+      })
+    } finally {
+      setBmBusy(false)
+      await loadOverview()
+    }
+  }
+
+  /**
+   * 删一条书签（契约 §7.3 的软删除）。
+   *
+   * 失败**只给 notice、不 setBmError** —— 与书架删书同一口径（见 onDeleteBook）：
+   * 为了一条书签把整页换成错误页不值得。
+   */
+  async function onDeleteBookmark(b: BookmarkDto) {
+    setBmBusy(true)
+    setNotice(null)
+    try {
+      await api.deleteBookmark(b.bookmarkId, b.version)
+      setNotice({ kind: 'done', text: `已删除书签「${shortTitle(b.name || '（无名）')}」。` })
+    } catch (e) {
+      setNotice({
+        kind: 'failed',
+        text:
+          e instanceof ApiError && e.code === 'SYNC_VERSION_CONFLICT'
+            ? '这条书签已被其他设备改过，删除已取消。'
+            : e instanceof ApiError
+              ? e.message
+              : '删除书签失败，请稍后重试。',
+      })
+    } finally {
+      setPendingBmDelete(null)
+      setBmBusy(false)
+      await loadOverview()
+    }
+  }
+
   async function onPickFile(e: React.ChangeEvent<HTMLInputElement>) {
     const file = e.target.files?.[0]
     e.target.value = ''
@@ -230,6 +329,10 @@ export default function LibraryView() {
       }
     }
   }
+
+  /** 当前这一页的组是不是都展开了 —— 决定总开关按钮显示「全部折叠」还是「全部展开」 */
+  const allExpanded =
+    overview.length > 0 && overview.every((g) => expandedDocs.has(g.docId))
 
   if (!ready || !user) {
     return <div className="shelf-page"><div className="shelf-empty">正在恢复登录状态…</div></div>
@@ -350,32 +453,129 @@ export default function LibraryView() {
 
               {!bmLoading && !bmError && overview.length > 0 && (
                 <>
-                  {overview.map((g) => (
-                    <section className="marks-group" key={g.docId}>
-                      <header className="marks-group-head">
-                        <span className="marks-group-title">{g.docTitle}</span>
-                        <span className="muted">{g.bookmarkCount} 条</span>
-                      </header>
-                      {g.items.map((b: BookmarkDto) => (
-                        <button
-                          className="marks-row"
-                          key={b.bookmarkId}
-                          onClick={() => navigate(`/read/${b.docId}?para=${b.anchor.paragraphIndex}`)}
-                        >
-                          <span className="marks-row-name">{b.name || '（无名）'}</span>
-                          {/* B4 之前的旧数据没有 chapterTitle，降级成"文档名 + 段落序号" */}
-                          <span className="marks-row-chapter">
-                            {b.chapterTitle
-                              ? `${b.chapterTitle} · 第 ${b.anchor.paragraphIndex + 1} 段`
-                              : `${g.docTitle} · 第 ${b.anchor.paragraphIndex + 1} 段`}
-                          </span>
-                          <span className="marks-row-time">
-                            {new Date(b.createdAt).toLocaleString('zh-CN')}
-                          </span>
-                        </button>
-                      ))}
-                    </section>
-                  ))}
+                  {/* 作用域是**当前这一页的组**（分页是按文档分的，没加载的组我们不知道）。
+                      页大小 20，实际上够用 */}
+                  <div className="marks-overview-bar">
+                    <span className="muted">共 {bmTotal} 本书有书签</span>
+                    <button
+                      className="btn btn-ghost btn-sm"
+                      onClick={() =>
+                        setExpandedDocs(
+                          allExpanded ? new Set() : new Set(overview.map((g) => g.docId)),
+                        )
+                      }
+                    >
+                      {allExpanded ? '全部折叠' : '全部展开'}
+                    </button>
+                  </div>
+
+                  {overview.map((g) => {
+                    const expanded = expandedDocs.has(g.docId)
+                    return (
+                      <section className="marks-group" key={g.docId}>
+                        <header className="marks-group-head">
+                          {/* 组头不整体做按钮：里面还有别的按钮，按钮套按钮是非法 HTML。
+                              可点的是中间那块 .marks-group-toggle */}
+                          <button
+                            className="marks-group-toggle"
+                            aria-expanded={expanded}
+                            onClick={() => toggleGroup(g.docId)}
+                          >
+                            <span className="marks-caret" aria-hidden="true">
+                              {expanded ? '▾' : '▸'}
+                            </span>
+                            <span className="marks-group-title">{g.docTitle}</span>
+                            <span className="muted">{g.bookmarkCount} 条</span>
+                          </button>
+                        </header>
+
+                        {expanded &&
+                          g.items.map((b: BookmarkDto) => (
+                            <div className="marks-row" key={b.bookmarkId}>
+                              {renamingId === b.bookmarkId ? (
+                                <input
+                                  className="input mark-rename marks-row-rename"
+                                  autoFocus
+                                  value={renamingText}
+                                  onChange={(e) => setRenamingText(e.target.value)}
+                                  onBlur={() => setRenamingId('')}
+                                  onKeyDown={(e) => {
+                                    if (e.key === 'Enter') void submitRename(b)
+                                    if (e.key === 'Escape') setRenamingId('')
+                                  }}
+                                />
+                              ) : (
+                                <button
+                                  className="marks-row-main"
+                                  onClick={() =>
+                                    navigate(`/read/${b.docId}?para=${b.anchor.paragraphIndex}`)
+                                  }
+                                >
+                                  <span className="marks-row-name">{b.name || '（无名）'}</span>
+                                  {/* B4 之前的旧数据没有 chapterTitle，降级成"文档名 + 段落序号" */}
+                                  <span className="marks-row-chapter">
+                                    {b.chapterTitle
+                                      ? `${b.chapterTitle} · 第 ${b.anchor.paragraphIndex + 1} 段`
+                                      : `${g.docTitle} · 第 ${b.anchor.paragraphIndex + 1} 段`}
+                                  </span>
+                                  <span className="marks-row-time">
+                                    {new Date(b.createdAt).toLocaleString('zh-CN')}
+                                  </span>
+                                </button>
+                              )}
+
+                              <div className="marks-row-acts">
+                                <button
+                                  className="mark-act"
+                                  title="重命名"
+                                  aria-label={`重命名书签「${b.name || '（无名）'}」`}
+                                  disabled={bmBusy}
+                                  onClick={() => {
+                                    setRenamingId(b.bookmarkId)
+                                    setRenamingText(b.name ?? '')
+                                  }}
+                                >
+                                  ✎
+                                </button>
+                                <button
+                                  className="mark-act"
+                                  title="删除"
+                                  aria-label={`删除书签「${b.name || '（无名）'}」`}
+                                  disabled={bmBusy}
+                                  onClick={() => {
+                                    setNotice(null)
+                                    setPendingBmDelete(b.bookmarkId)
+                                  }}
+                                >
+                                  ✕
+                                </button>
+                              </div>
+
+                              {/* 就地确认，仿书架的 .book-del-confirm（覆盖式），不另开模态 */}
+                              {pendingBmDelete === b.bookmarkId && (
+                                <div className="marks-row-confirm">
+                                  <span className="muted">删除这条书签？</span>
+                                  <button
+                                    className="btn btn-sm book-del-danger"
+                                    disabled={bmBusy}
+                                    onClick={() => void onDeleteBookmark(b)}
+                                  >
+                                    {bmBusy ? '正在删除…' : '确认删除'}
+                                  </button>
+                                  <button
+                                    className="btn btn-ghost btn-sm"
+                                    disabled={bmBusy}
+                                    onClick={() => setPendingBmDelete(null)}
+                                  >
+                                    取消
+                                  </button>
+                                </div>
+                              )}
+                            </div>
+                          ))}
+                      </section>
+                    )
+                  })}
 
                   {bmTotal > 20 && (
                     <div className="marks-pager">

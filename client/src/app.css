@@ -1775,15 +1775,52 @@ button {
   padding: 6px 2px; border-bottom: 1px solid rgba(0, 0, 0, 0.08);
 }
 .marks-group-title { font-weight: 600; }
+/* 总览页顶部的操作条：文档数 + 全部展开/折叠 */
+.marks-overview-bar {
+  display: flex; align-items: center; justify-content: space-between;
+  padding: 4px 2px 8px;
+}
+
+/* 组头里可点的那一块。组头**不能整体做按钮** —— 里面还有别的按钮（批量删除的
+   全选勾选框），按钮套按钮是非法 HTML */
+.marks-group-toggle {
+  display: flex; align-items: baseline; gap: 10px; flex: 1;
+  padding: 2px 0; border: none; background: none;
+  text-align: left; color: inherit; cursor: pointer;
+}
+.marks-caret { width: 12px; color: #6b7280; font-size: 12px; }
+
+/* 一行 = 勾选框 + 可点区 + 操作区。整行不能再是 <button>：
+   里面要放勾选框和两个操作按钮，按钮套按钮是非法 HTML，可访问性树也会乱。
+   外层是 grid 容器，原来那三列搬进 .marks-row-main 里复刻，视觉不变。
+   position:relative 是给逐条删除的确认层当定位祖先 */
 .marks-row {
+  position: relative;
   display: grid;
-  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) auto;
+  grid-template-columns: auto minmax(0, 1fr) auto;
   gap: 12px; align-items: center; width: 100%;
-  padding: 8px 6px; text-align: left;
-  border: none; background: transparent; cursor: pointer;
+  padding: 8px 6px;
   border-bottom: 1px solid rgba(0, 0, 0, 0.05);
 }
 .marks-row:hover { background: rgba(59, 110, 165, 0.07); }
+.marks-row-main {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) auto;
+  gap: 12px; align-items: center; width: 100%;
+  padding: 0; border: none; background: transparent; cursor: pointer;
+  text-align: left; color: inherit; font: inherit;
+}
 .marks-row-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .marks-row-chapter,
 .marks-row-time { color: #6b7280; font-size: 13px; }
+.marks-row-acts { display: flex; gap: 4px; }
+.marks-row-rename { width: 100%; }
+
+/* 逐条删除的就地确认层，覆盖整行。仿书架的 .book-del-confirm */
+.marks-row-confirm {
+  position: absolute; inset: 0; z-index: 2;
+  display: flex; align-items: center; justify-content: flex-end; gap: 8px;
+  padding: 4px 8px; border-radius: 6px;
+  background: var(--bg);
+  box-shadow: 0 2px 10px rgba(0, 0, 0, 0.12);
+}
