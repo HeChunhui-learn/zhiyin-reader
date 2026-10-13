@@ -81,6 +81,16 @@ export default function LibraryView() {
   /** 行内改名的目标与草稿，写法与 BookmarkPanel 一致 */
   const [renamingId, setRenamingId] = useState('')
   const [renamingText, setRenamingText] = useState('')
+  /**
+   * 勾选中的书签 id。bookmarkId 全局唯一，所以天然是跨组的。
+   *
+   * **翻页/换分类时清空**（见下面那个 effect）：选中的书签在新一页上根本看不见，
+   * 留着的话"删除所选"会删掉读者视野之外的数据 —— 一个不可恢复的破坏性操作
+   * 不该作用在看不见的东西上。
+   */
+  const [selected, setSelected] = useState<Set<string>>(new Set())
+  /** 底部操作栏是否处于"确认删除"态 */
+  const [confirmBatch, setConfirmBatch] = useState(false)
 
   const fileRef = useRef<HTMLInputElement>(null)
   const navigate = useNavigate()
@@ -142,6 +152,16 @@ export default function LibraryView() {
   useEffect(() => {
     void loadOverview()
   }, [loadOverview])
+
+  // 翻页 / 换分类时把待决的编辑态一律收干净：选中的书签在新一页上看不见，
+  // 留着会让"删除所选"作用到视野之外（见 selected 的注释）；
+  // 改名框与删除确认层同理，留着会指到一条已经不在列表里的记录上。
+  useEffect(() => {
+    setSelected(new Set())
+    setConfirmBatch(false)
+    setPendingBmDelete(null)
+    setRenamingId('')
+  }, [bmPage, nav])
 
   /* 删除回执自动消失（与阅读界面的 toast 一个口径） */
   useEffect(() => {
@@ -213,6 +233,71 @@ export default function LibraryView() {
       else next.add(docId)
       return next
     })
+  }
+
+  function selectOne(bookmarkId: string) {
+    setSelected((prev) => {
+      const next = new Set(prev)
+      if (next.has(bookmarkId)) next.delete(bookmarkId)
+      else next.add(bookmarkId)
+      return next
+    })
+  }
+
+  /** 组头那个勾选框：整组已全选就全不选，否则补齐。全选的粒度是**组**，不是全局 ——
+      跨页选中已被否掉，而"选全部"得先知道有哪些，不值当 */
+  function selectGroup(items: BookmarkDto[]) {
+    setSelected((prev) => {
+      const next = new Set(prev)
+      const ids = items.map((b) => b.bookmarkId)
+      const all = ids.every((id) => next.has(id))
+      for (const id of ids) {
+        if (all) next.delete(id)
+        else next.add(id)
+      }
+      return next
+    })
+  }
+
+  /**
+   * 批量删除勾选的书签。
+   *
+   * 走既有的单条 DELETE（§7.3）**逐条发，不新增批量端点**：
+   *  · 软删除本来就是"逐条 + 带各自 baseVersion 的条件更新"，没有跨行原子性可言 ——
+   *    这跟 §7.7 的拖动排序不同，那里的 sort_order 互相耦合才必须整批事务。
+   *    批量化并不能省掉逐条条件更新，只是把 N 个往返压成 1 个。
+   *  · 逐条发天然给出逐条结果：N 条里坏 1 条（被别的设备改过），其余照样删掉，
+   *    回执能如实报数。批量端点反而要额外设计"部分失败"的响应形状，
+   *    而 §7.7 的先例是整体回滚、不接受部分成功，两套语义并存更难讲清楚。
+   *  · 零服务端改动 = 零契约改动 = 不动 sync-bookmark.test.ts 那 61 例。
+   * better-sqlite3 是同步驱动，服务端本来就一条条落库，并发发没有额外代价。
+   */
+  async function onBatchDelete() {
+    const byId = new Map<string, BookmarkDto>()
+    for (const g of overview) for (const it of g.items) byId.set(it.bookmarkId, it)
+    const targets = [...selected].map((id) => byId.get(id)).filter((b): b is BookmarkDto => !!b)
+    if (targets.length === 0) return
+
+    setBmBusy(true)
+    setConfirmBatch(false)
+    setNotice(null)
+    // allSettled 不 reject，所以这里不需要 try/catch
+    const results = await Promise.allSettled(
+      targets.map((b) => api.deleteBookmark(b.bookmarkId, b.version)),
+    )
+    const done = results.filter((r) => r.status === 'fulfilled').length
+    const failed = results.length - done
+    setBmBusy(false)
+    setSelected(new Set())
+    setNotice(
+      failed === 0
+        ? { kind: 'done', text: `已删除 ${done} 条书签。` }
+        : {
+            kind: 'failed',
+            text: `已删除 ${done} 条，${failed} 条失败（可能已被其他设备改过），请刷新后重试。`,
+          },
+    )
+    await loadOverview()
   }
 
   /**
@@ -474,6 +559,18 @@ export default function LibraryView() {
                     return (
                       <section className="marks-group" key={g.docId}>
                         <header className="marks-group-head">
+                          {/* 全选的粒度是"这一组"。放在现成的组头里 —— 组是页面上
+                              最自然的视觉单元，读者不用去别处找 */}
+                          <input
+                            type="checkbox"
+                            className="marks-check"
+                            checked={
+                              g.items.length > 0 &&
+                              g.items.every((b) => selected.has(b.bookmarkId))
+                            }
+                            aria-label={`选中《${g.docTitle}》的全部 ${g.bookmarkCount} 条书签`}
+                            onChange={() => selectGroup(g.items)}
+                          />
                           {/* 组头不整体做按钮：里面还有别的按钮，按钮套按钮是非法 HTML。
                               可点的是中间那块 .marks-group-toggle */}
                           <button
@@ -492,6 +589,13 @@ export default function LibraryView() {
                         {expanded &&
                           g.items.map((b: BookmarkDto) => (
                             <div className="marks-row" key={b.bookmarkId}>
+                              <input
+                                type="checkbox"
+                                className="marks-check"
+                                checked={selected.has(b.bookmarkId)}
+                                aria-label={`选择书签「${b.name || '（无名）'}」`}
+                                onChange={() => selectOne(b.bookmarkId)}
+                              />
                               {renamingId === b.bookmarkId ? (
                                 <input
                                   className="input mark-rename marks-row-rename"
@@ -596,6 +700,53 @@ export default function LibraryView() {
                       >
                         下一页
                       </button>
+                    </div>
+                  )}
+
+                  {/* 选中集非空才出现的底部操作栏。sticky 到底：滚动容器就是 .shelf-main
+                      （flex:1 + overflow-y:auto），所以 sticky 直接生效，不用 fixed
+                      + 手算左偏移，也不用跟侧栏的宽度较劲。
+                      二次确认就地做在栏里，不再套一层 modal —— 对一个已经悬浮在屏幕
+                      底部的操作栏来说那层模态是多余的，而 .book-del-confirm 已经是
+                      项目里"就地确认"的语言 */}
+                  {selected.size > 0 && (
+                    <div className="marks-selbar">
+                      {confirmBatch ? (
+                        <>
+                          <span>确认删除选中的 {selected.size} 条书签？不可恢复。</span>
+                          <button
+                            className="btn btn-sm book-del-danger"
+                            disabled={bmBusy}
+                            onClick={() => void onBatchDelete()}
+                          >
+                            {bmBusy ? '正在删除…' : '确认删除'}
+                          </button>
+                          <button
+                            className="btn btn-ghost btn-sm"
+                            disabled={bmBusy}
+                            onClick={() => setConfirmBatch(false)}
+                          >
+                            取消
+                          </button>
+                        </>
+                      ) : (
+                        <>
+                          <span>已选 {selected.size} 条</span>
+                          <button
+                            className="btn btn-sm"
+                            disabled={bmBusy}
+                            onClick={() => setConfirmBatch(true)}
+                          >
+                            删除所选
+                          </button>
+                          <button
+                            className="btn btn-ghost btn-sm"
+                            onClick={() => setSelected(new Set())}
+                          >
+                            取消选择
+                          </button>
+                        </>
+                      )}
                     </div>
                   )}
                 </>

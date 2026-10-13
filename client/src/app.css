@@ -1815,6 +1815,18 @@ button {
 .marks-row-time { color: #6b7280; font-size: 13px; }
 .marks-row-acts { display: flex; gap: 4px; }
 .marks-row-rename { width: 100%; }
+.marks-check { width: 15px; height: 15px; flex: none; cursor: pointer; }
+
+/* 选中集非空时的底部操作栏。sticky 到底：滚动容器是 .shelf-main（flex:1 + overflow-y:auto），
+   所以 sticky 直接生效，不必用 fixed 去手算侧栏宽度 */
+.marks-selbar {
+  position: sticky; bottom: 0; z-index: 3;
+  display: flex; align-items: center; gap: 10px;
+  margin-top: 12px; padding: 10px 12px;
+  border: 1px solid var(--border); border-radius: 10px;
+  background: var(--bg);
+  box-shadow: 0 -2px 12px rgba(0, 0, 0, 0.08);
+}
 
 /* 逐条删除的就地确认层，覆盖整行。仿书架的 .book-del-confirm */
 .marks-row-confirm {
