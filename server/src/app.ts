@@ -16,12 +16,18 @@ import healthRoutes from './routes/health'
 /**
  * 单次请求体的上限。默认 1MB 对导入文档来说完全不够。
  *
- * R7-4 从 20MB 提到 100MB：20MB 只够中等长度的 TXT，
- * 带插图的 EPUB 很容易就超（图片本体不随导入上传，但正文 JSON 与
- * 原始文件是两个大块）。真正的正文规模仍由 documents.ts 的
- * MAX_PARAGRAPHS 兜底 —— 段落数才是耗内存的那一头。
+ * R7-4 从 20MB 提到 100MB，本次再提到 500MB —— 演示要能吃下带整本插图的
+ * 大部头 EPUB。注意这个值同时是**内存**上限：Fastify 会在进 handler 之前
+ * 把整个 body 收进 Buffer，一个 500MB 的 PUT 就是一份 500MB 的常驻内存。
+ *
+ * 这里只是"别让解析器抢在业务校验前面把请求打回"，真正兜底的是两处业务上限：
+ *  · 正文 JSON 看 documents.ts 的 MAX_PARAGRAPHS —— 段落数才是耗内存的那一头
+ *  · 原始文件看 routes/resources.ts 的 MAX_FILE_BYTES
+ * 两者都必须 ≤ 这个值，否则业务侧的 413 永远轮不到发，读者拿到的是
+ * Fastify 那条不带 details 的 413。三处要一起改（客户端另有一份
+ * 预检常量 client/src/features/parse/index.ts，跨包无法共享，靠注释互相指认）。
  */
-const BODY_LIMIT = 100 * 1024 * 1024
+export const BODY_LIMIT = 500 * 1024 * 1024
 
 export interface BuildAppOptions {
   /** 关掉每个请求一行的访问日志（测试里默认关，免得把断言输出冲掉） */

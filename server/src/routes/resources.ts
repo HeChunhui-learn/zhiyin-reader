@@ -47,9 +47,14 @@ const MAX_IMAGE_BYTES = 10 * 1024 * 1024
 /**
  * 原始文件上限（R7-4）。以前这里**完全没有上限**，实际能传多大
  * 完全取决于 Fastify 的 bodyLimit —— 那是全局值，改它会连带放宽
- * 所有接口。这里补一条自己的，与 index.ts 的 BODY_LIMIT 对齐。
+ * 所有接口。这里补一条自己的，与 server/src/app.ts 的 BODY_LIMIT 对齐。
+ *
+ * 两边**必须同值**：bodyLimit 在进 handler 之前生效，若是它更小，
+ * 这里的 413 永远轮不到发，读者拿到的是 Fastify 那条不带 details 的 413。
+ * 有一条测试盯着这个等式（test/documents-resources.test.ts 的「上限一致性」）。
+ * 客户端另有一份预检常量 client/src/features/parse/index.ts，也要一起改。
  */
-const MAX_FILE_BYTES = 100 * 1024 * 1024
+export const MAX_FILE_BYTES = 500 * 1024 * 1024
 
 function ensureDir(p: string): void {
   if (!existsSync(p)) mkdirSync(p, { recursive: true })

@@ -43,6 +43,10 @@
     背景图存 IndexedDB（`zhiyin-cache` 升到 v4，新增 `readerbg` store），只存本地不上传。
   - R7-4 已完成：上传上限 20MB→100MB（`bodyLimit`；`PUT .../file` 此前没有自己的上限，
     现在补了；导入的两个请求超时放宽到 120 秒；前端读文件之前就预检）；
+    **后续再提到 500MB**（`server/src/app.ts` 的 `BODY_LIMIT` 与
+    `server/src/routes/resources.ts` 的 `MAX_FILE_BYTES` 必须同值，
+    客户端 `client/src/features/parse/index.ts` 另有一份预检常量；
+    上传超时随之放宽到 300 秒。见契约 §4.8）；
     收藏（新表 `T_Favorite`，`PUT/DELETE /api/documents/{docId}/favorite` 两个方向都幂等，
     书架列表每项带 `isFavorite`，左导航新增「我的收藏」）。
   - R7-5 已完成：阅读时长统计（新表 `T_ReadingSession`，`client_id` 唯一索引 + `INSERT OR IGNORE`

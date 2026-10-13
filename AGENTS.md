@@ -12,7 +12,7 @@
 - **定位**：两周内做出可现场演示的桌面 Web 应用。**不是生产级产品，不要过度设计。**
 - **演示当天必须真实跑通的三项**（其余功能都围绕它们服务）：① 逐句高亮跟读（TTS）② 跨设备同步 + 冲突处理 ③ 图文混排与图片懒加载。
 - **六轮开发（R0–R6）已全部完成**，其后 `main` 又完成了 **R7（阅读体验与个人化，五步）**。当前处于**多角色并行迭代阶段**（分支 `V1.A` / `V1.B` / `V1.C` / `V1.D`）。
-- **R7 五步**：R7-1 朗读音色可选（`server/src/tts/voiceCatalog.ts` + `GET /api/tts/voices`，契约 §9.4，没装的音色置灰）；R7-2 目录侧边抽屉 + 当前章节高亮（滚动回调里做变化检测闸门，只在跨章时 setState）；R7-3 阅读设置面板（白天/夜晚、字号、翻页方式、背景图，`client/src/features/settings/`）；R7-4 上传上限提到 100MB + 收藏（新表 `T_Favorite`）；R7-5 阅读时长统计（新表 `T_ReadingSession`，`client_id` 唯一索引 + `INSERT OR IGNORE`）与个人主页头像（新表 `T_UserProfile`，头像**不能**直接 `<img src>`，接口要 Bearer 必须经接口取二进制），新页面 `/stats` 与 `/profile`。
+- **R7 五步**：R7-1 朗读音色可选（`server/src/tts/voiceCatalog.ts` + `GET /api/tts/voices`，契约 §9.4，没装的音色置灰）；R7-2 目录侧边抽屉 + 当前章节高亮（滚动回调里做变化检测闸门，只在跨章时 setState）；R7-3 阅读设置面板（白天/夜晚、字号、翻页方式、背景图，`client/src/features/settings/`）；R7-4 上传上限提到 100MB（后又提到 500MB，见契约 §4.8）+ 收藏（新表 `T_Favorite`）；R7-5 阅读时长统计（新表 `T_ReadingSession`，`client_id` 唯一索引 + `INSERT OR IGNORE`）与个人主页头像（新表 `T_UserProfile`，头像**不能**直接 `<img src>`，接口要 Bearer 必须经接口取二进制），新页面 `/stats` 与 `/profile`。
 
 ### 技术栈（版本已定，不要更换、不要新增）
 

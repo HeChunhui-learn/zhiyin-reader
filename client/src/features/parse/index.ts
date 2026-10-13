@@ -34,13 +34,21 @@ export interface ParseOutcome {
  * CLAUDE.md 裁决 1：解析全部在前端做，服务端只负责存储与分发。
  */
 /**
- * 单个文件的大小上限，与服务端的 bodyLimit（index.ts 的 BODY_LIMIT）对齐。
+ * 单个文件的大小上限，与服务端对齐（server/src/app.ts 的 BODY_LIMIT、
+ * server/src/routes/resources.ts 的 MAX_FILE_BYTES，两处同值）。
+ * **跨包没法共享常量，改一处必须回头看一眼另两处。**
  *
  * 在**读文件之前**就拦下来：超限的文件读进内存再失败，白等半天还占一份内存，
  * 而且那时的报错来自服务端的 413，读者看到的是"上传内容超过大小限制"，
  * 不知道到底是哪个文件、超了多少。
+ *
+ * 注意这只是"允许传多大"，不等于"解析得了多大"：parseEpub 是
+ * `await file.arrayBuffer()` 全量读进内存的，解压后的 DOM、图片 Blob、
+ * 正文对象与 JSON 字符串会叠在一起，峰值能到文件大小的数倍。
+ * 演示用的书都是几 MB，不会碰到；真拿一个数百 MB 的 EPUB 去试，
+ * 浏览器有可能直接崩 —— 那是浏览器层面的 OOM，本项目不做兜底。
  */
-export const MAX_FILE_BYTES = 100 * 1024 * 1024
+export const MAX_FILE_BYTES = 500 * 1024 * 1024
 
 export function formatBytes(n: number): string {
   if (n >= 1024 * 1024 * 1024) return `${(n / 1024 / 1024 / 1024).toFixed(1)}GB`

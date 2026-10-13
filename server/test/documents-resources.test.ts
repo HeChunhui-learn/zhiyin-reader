@@ -1,6 +1,8 @@
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
 import type { FastifyInstance } from 'fastify'
 import { auth, closeApp, importBody, makeApp, registerAndLogin } from './helpers'
+import { BODY_LIMIT } from '../src/app'
+import { MAX_FILE_BYTES } from '../src/routes/resources'
 
 /**
  * DC-01 ~ DC-14 文档与正文（契约 §4）、IM-01 ~ IM-11 图片资源（§4.3 / §5），
@@ -803,5 +805,36 @@ describe('R7-5 头像（不能直接 <img src>，必须经接口取二进制）'
     })
     const meB = await app.inject({ method: 'GET', url: '/api/users/me', headers: auth(b) })
     expect(meB.json().avatarUrl).toBeNull()
+  })
+})
+
+/**
+ * 上传体量上限（契约 §4.1 / §4.2 / §4.8）。
+ *
+ * 这里**故意不构造 500MB 的 body** —— 给 inject 塞一份 500MB 的 Buffer，
+ * 测试进程会瞬时多占同等内存、整个 suite 从秒级拖到十几秒，换来的只是一个
+ * "数字改对了"的断言，小内存机器还可能直接 OOM。真正会漏的是**三处上限没一起改**，
+ * 所以改成：① 断言两个服务端常量同值；② 走 MAX_PARAGRAPHS 这条**便宜的真实路径**
+ * 把 413 的分支跑通（20001 个短段落不到 1MB）。
+ */
+describe('上传体量上限（§4.1 / §4.2）', () => {
+  it('★ 请求体上限与原始文件上限必须同值', () => {
+    // bodyLimit 在进 handler 之前生效：若它比业务上限小，
+    // §4.2 的 413 永远轮不到业务代码发，读者拿到的是 Fastify 那条不带 details 的
+    expect(BODY_LIMIT).toBe(MAX_FILE_BYTES)
+  })
+
+  it('★ 段落数超过 MAX_PARAGRAPHS → 413 PAYLOAD_TOO_LARGE', async () => {
+    const s = await registerAndLogin(app)
+    const r = await app.inject({
+      method: 'POST',
+      url: '/api/documents',
+      headers: auth(s),
+      payload: importBody({
+        paragraphs: Array.from({ length: 20001 }, () => ({ text: '正文。' })),
+      }),
+    })
+    expect(r.statusCode).toBe(413)
+    expect(r.json().code).toBe('PAYLOAD_TOO_LARGE')
   })
 })
