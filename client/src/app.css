@@ -1372,6 +1372,60 @@ button {
   padding: 34px 0 60px;
 }
 
+/* ---- 横向分页（阅读版面 = 横向分页） ----
+   页面带横排、按整屏平移切换。页边界是对齐段落的（见 features/render/pagination.ts），
+   所以页内不会被裁掉半行字。
+
+   注意这里的 overflow 必须**显式**写 hidden：只写 overflow-y 的话，
+   overflow-x 会按规范计算成 auto，横向会冒出一条滚动条。 */
+.reader-scroll.paged {
+  overflow: hidden;
+  padding: 0;
+}
+
+.reader-pages {
+  position: absolute;
+  inset: 0;
+  transition: transform 0.22s ease-out;
+}
+
+/* 跨多页跳转（目录/书签/恢复位置/字号重排）不放动画，
+   否则中间那几页会"呼啸而过" */
+.reader-pages.notrans {
+  transition: none;
+}
+
+/* 尊重系统的"减少动态效果" */
+@media (prefers-reduced-motion: reduce) {
+  .reader-pages {
+    transition: none;
+  }
+}
+
+.page-slot {
+  position: absolute;
+  top: 0;
+  width: 100%;
+  height: 100%;
+  /* 与 .reader-scroll 同样的内边距，正文版心在两种版面下位置一致 */
+  padding: 34px 0 60px;
+  box-sizing: border-box;
+  /* 估算偏差让某一段高于一页时把溢出裁掉，不让它串到相邻页上 */
+  overflow: hidden;
+}
+
+/* 长段落的切片。.page-slice 的高度由 JS 设成**行高的整数倍**，
+   所以下边缘正好落在两行文字之间 —— 切出来是整行，不会出现缺半边的字。
+   内层按 -slice * 高度 上移，显示的是这一段的后半截 */
+.page-slice {
+  overflow: hidden;
+}
+
+.page-slice-inner {
+  /* 让 translateY 生效；段落自身的排版完全不变 */
+  will-change: transform;
+}
+
 .reader-content {
   max-width: 720px;
   margin: 0 auto;

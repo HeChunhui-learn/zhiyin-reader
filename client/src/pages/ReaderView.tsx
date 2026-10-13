@@ -16,6 +16,7 @@ import {
   recomputeFrom,
   totalHeight,
 } from '../features/render/virtualWindow'
+import { NO_PAGES, pageOfPara, paginate, sliceHeight } from '../features/render/pagination'
 import { tocIndexAt } from '../features/render/toc'
 
 /**
@@ -41,10 +42,11 @@ import BookmarkPanel from './BookmarkPanel'
 import ReaderSettingsPanel from './ReaderSettingsPanel'
 
 /**
- * 翻页模式下前后两屏的重叠量（像素）。
- * 完全按一屏翻的话，跨屏的那一行会被切掉一半，读着容易丢行。
+ * 横向分页时版心的上下内边距（像素），与 app.css 里 `.reader-scroll` / `.page-slot`
+ * 的 `padding: 34px 0 60px` 是同一个值。
+ * 一页能装的内容高度 = 容器高度 - 这个数。
  */
-const PAGE_OVERLAP = 48
+const PAGE_PAD_Y = 94
 
 export default function ReaderView() {
   const { docId = '' } = useParams()
@@ -166,6 +168,68 @@ export default function ReaderView() {
   const geom = useMemo(() => buildGeometry(paragraphs, prefs.fontSize), [paragraphs, prefs.fontSize])
   const [win, setWin] = useState({ start: 0, end: VIRTUAL_THRESHOLD })
 
+  /* ------------------------------------------------------ 横向分页 */
+
+  const paged = prefs.layout === 'paged'
+
+  /** 一页能装的内容高度。0 = 还没量出来（正文还没挂上），此时页表为空、分页不渲染 */
+  const [pageH, setPageH] = useState(0)
+  /**
+   * 几何表被实测高度回写过的信号。
+   *
+   * geom 是**就地改**的对象（recomputeFrom 直接改 offsets），引用不会变，
+   * 光把它放进 useMemo 的依赖里，页表永远算不出新值。
+   */
+  const [geomVersion, setGeomVersion] = useState(0)
+
+  /** 正文行高。与 .reader-content 的 line-height:1.9 对齐，长段落按它的整数倍切片 */
+  const lineHeight = prefs.fontSize * 1.9
+  /** 切片页的裁切高度（行高的整数倍，见 pagination.ts 的说明） */
+  const sliceH = sliceHeight(pageH, lineHeight)
+
+  const pages = useMemo(
+    () => (paged ? paginate(geom, pageH, lineHeight) : NO_PAGES),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [paged, geom, geomVersion, pageH, lineHeight, paragraphs],
+  )
+
+  const [page, setPage] = useState(0)
+  /** 事件监听闭包会拿到过期的 page，所以翻页入口一律走 ref 读当前值 */
+  const pageRef = useRef(0)
+  const totalPagesRef = useRef(1)
+
+  const goPage = useCallback((next: number) => {
+    const max = Math.max(0, totalPagesRef.current - 1)
+    const clamped = Math.max(0, Math.min(max, next))
+    if (clamped === pageRef.current) return
+    pageRef.current = clamped
+    setPage(clamped)
+  }, [])
+
+  const turn = useCallback((dir: 1 | -1) => goPage(pageRef.current + dir), [goPage])
+
+  useLayoutEffect(() => {
+    totalPagesRef.current = Math.max(1, pages.starts.length)
+    pageRef.current = page
+  }, [pages, page])
+
+  /**
+   * 量一页的高度。ResizeObserver 让窗口缩放也重排。
+   *
+   * `paragraphs.length` **必须进依赖**：首帧还在 loading（rootRef 是 null），
+   * 正文挂上之后这个 effect 不会自动重跑，pageH 会一直停在 0、分页渲染成一片空白。
+   */
+  useLayoutEffect(() => {
+    if (!paged) return
+    const root = rootRef.current
+    if (!root) return
+    const measure = () => setPageH(Math.max(200, (root.clientHeight || 600) - PAGE_PAD_Y))
+    measure()
+    const ro = new ResizeObserver(measure)
+    ro.observe(root)
+    return () => ro.disconnect()
+  }, [paged, paragraphs.length])
+
   /**
    * 目录条目 = 全部 h1/h2。要在滚动回调之前算出来（那个回调的依赖数组在这里就求值了）。
    * 必须 useMemo：每次渲染都 filter 出一个新数组的话，滚动回调会每帧重订阅一次。
@@ -218,6 +282,14 @@ export default function ReaderView() {
       // 跳转不走滚动回调（下面是直接操作 scrollTop 的），不在这里补一下的话
       // 目录高亮会停在旧章节，直到读者自己滚一下才更新
       syncActiveToc(index)
+
+      // 分页版面：段号 → 页号，翻过去就是。跨多页时 .notrans 会自动关掉过渡
+      if (paged) {
+        const p = pageOfPara(pages, index)
+        if (p >= 0) goPage(p)
+        return
+      }
+
       if (!virtual) {
         root
           .querySelector(`[data-para="${index}"]`)
@@ -227,7 +299,7 @@ export default function ReaderView() {
       root.scrollTo({ top: offsetOf(geom, index), behavior: smooth ? 'smooth' : 'auto' })
       setWin(computeWindow(geom, offsetOf(geom, index), root.clientHeight || 600, index))
     },
-    [virtual, geom, syncActiveToc],
+    [virtual, geom, syncActiveToc, paged, pages, goPage],
   )
 
 
@@ -235,25 +307,36 @@ export default function ReaderView() {
   const currentParaRef = useRef(0)
   const resumedRef = useRef(false)
 
+  /**
+   * 分页版面下，页表没算出来之前不能跳。
+   *
+   * `pageOfPara` 在空页表上返回 -1，gotoParagraph 会**静默什么都不做** ——
+   * 而这两个 effect 都靠一个 ref 保证"只跳一次"，跳没了 ref 也已经置位、
+   * 再也补不回来。所以必须等页表就绪（pageH 量到之后）再动手。
+   */
+  const pagesReady = !paged || pages.starts.length > 0
+
   /** B2：从书架「我的书签」点进来时，定位到锚点段落（只跳一次，不干扰后续滚动） */
   const jumpedRef = useRef(false)
   useEffect(() => {
     if (jumpedRef.current) return
     if (jumpPara === null || paragraphs.length === 0) return
+    if (!pagesReady) return
     jumpedRef.current = true
     gotoParagraph(Number(jumpPara), false)
-  }, [jumpPara, paragraphs, gotoParagraph])
+  }, [jumpPara, paragraphs, gotoParagraph, pagesReady])
 
   useEffect(() => {
     if (resumedRef.current) return
     if (!prog.ready || paragraphs.length === 0) return
+    if (!pagesReady) return
     resumedRef.current = true
     // 带 ?para= 时由上面的 effect 负责定位，不再恢复上次位置（否则两个跳转打架）
     if (jumpPara !== null) return
     if (prog.resumeParagraph <= 0) return
     const idx = clampToParagraphs({ ...anchorAt(prog.resumeParagraph) }, paragraphs)
     gotoParagraph(idx, false)
-  }, [prog.ready, prog.resumeParagraph, paragraphs, gotoParagraph, jumpPara])
+  }, [prog.ready, prog.resumeParagraph, paragraphs, gotoParagraph, jumpPara, pagesReady])
 
   /**
    * 正文一到位就先同步一次当前章节。
@@ -305,12 +388,50 @@ export default function ReaderView() {
     }
   }, [prog, ra.cursor, virtual, geom, syncActiveToc])
 
+  /**
+   * 分页版面：没有 scroll 事件可听，当前段落改由**当前页**推导。
+   *
+   * 口径与纵向那套保持一致（视口 30% 处那一段）。
+   * `reportedPageRef` 的去重是必须的 —— useProgress 每次渲染都返回新对象，
+   * 依赖数组根本挡不住它，不去重就会每次渲染都上报、把 hook 里 1500ms 的防抖冲垮。
+   */
+  const reportedPageRef = useRef(-1)
+  useEffect(() => {
+    // 换文档时清零，否则新文档的第 0 页会因为"和上一份文档的页号相同"被跳过
+    reportedPageRef.current = -1
+  }, [docId])
+  useEffect(() => {
+    if (!paged || pages.starts.length === 0) return
+    if (reportedPageRef.current === page) return
+    reportedPageRef.current = page
+
+    const top = geom.offsets[pages.starts[page]] ?? 0
+    const idx = paragraphAt(geom, top + pageH * 0.3)
+    currentParaRef.current = idx
+    syncActiveToc(idx)
+    prog.report(anchorAt(idx, ra.cursor))
+  }, [paged, page, pages, geom, pageH, syncActiveToc, prog, ra.cursor])
+
   /* 高亮自动跟随 */
   useEffect(() => {
     if (!ra.autoScroll) return
+
+    // 分页版面：高亮句可能在"另一页"上，而 scrollIntoView 是垂直的 —— 既不会翻页，
+    // 还会跟横向布局打架。这里改成按页跳。
+    if (paged) {
+      // sentences[i].sentenceIndex === i（前端顺序编号），游标直接就是下标，
+      // 段号从句子记录上 O(1) 取，不需要再造一张句→段反查表
+      const s = sentences[ra.cursor]
+      if (!s) return
+      const target = pageOfPara(pages, s.paraIndex)
+      // 页表还没就绪就跳过；pages 在依赖数组里，下一轮会自己追上
+      if (target >= 0 && target !== pageRef.current) goPage(target)
+      return
+    }
+
     const el = rootRef.current?.querySelector(`[data-sentence="${ra.cursor}"]`)
     el?.scrollIntoView({ block: 'center', behavior: 'smooth' })
-  }, [ra.cursor, ra.autoScroll])
+  }, [ra.cursor, ra.autoScroll, paged, pages, sentences, goPage])
 
   useEffect(() => {
     if (!toast) return
@@ -332,16 +453,115 @@ export default function ReaderView() {
   )
 
   /**
+   * 渲染一个段落。纵向与横向分页两套版面共用同一份 ——
+   * 抄成两份的话，改了标题样式或句子高亮的写法就会漏掉一边。
+   */
+  const renderParagraph = (p: Paragraph) => {
+    if (p.type === 'h1' || p.type === 'h2') {
+      const Tag = p.type === 'h1' ? 'h1' : 'h2'
+      return (
+        <Tag key={p.paraIndex} data-para={p.paraIndex} className={'doc-' + p.type}>
+          {p.text}
+        </Tag>
+      )
+    }
+    if (p.type === 'img') {
+      const ref = imageByPara.get(p.paraIndex)
+      if (!ref) {
+        return (
+          <figure key={p.paraIndex} data-para={p.paraIndex} className="doc-figure">
+            <div className="figure-missing">
+              <span>这一段的图片引用缺失</span>
+            </div>
+          </figure>
+        )
+      }
+      return (
+        <LazyImage
+          key={p.paraIndex}
+          docId={docId}
+          imageId={ref.imageId}
+          alt={ref.alt ?? ''}
+          hasRemote={!!ref.imageUrl}
+          scrollRoot={rootRef}
+          keepResident={ra.playing}
+          dataPara={p.paraIndex}
+        />
+      )
+    }
+    return (
+      <p key={p.paraIndex} data-para={p.paraIndex} className="doc-p">
+        {(byPara.get(p.paraIndex) ?? []).map((s) => (
+          <span
+            key={s.sentenceIndex}
+            data-sentence={s.sentenceIndex}
+            className={'sent' + (s.sentenceIndex === ra.cursor ? ' sent-active' : '')}
+            onClick={() => ra.seek(s.sentenceIndex)}
+          >
+            {s.text}
+          </span>
+        ))}
+      </p>
+    )
+  }
+
+  /**
+   * 分页版面要渲染哪几页：当前页 ± 1。
+   *
+   * 只渲染三页 —— 03 §3.1 要求"DOM 节点不超过视口窗口量的 3 倍"。
+   * 各页的段落互不相交，所以不会出现重复的 data-para，上面那个实测回写
+   * effect 的 querySelector 依然准。
+   */
+  const pageSlots = useMemo(() => {
+    if (!paged || pages.starts.length === 0) return []
+    const out: number[] = []
+    for (let p = page - 1; p <= page + 1; p++) {
+      if (p >= 0 && p < pages.starts.length) out.push(p)
+    }
+    return out
+  }, [paged, pages, page])
+
+  /**
+   * 跨多页（目录/书签跳转、恢复位置、字号重排）时不要放过渡动画 ——
+   * 否则读者会看到中间那几页"呼啸而过"。±1 的连点不用管：CSS transition
+   * 会从当前插值位置继续，不会打架。
+   */
+  const prevPageRef = useRef(page)
+  const jumped = Math.abs(page - prevPageRef.current) > 1
+  useLayoutEffect(() => {
+    prevPageRef.current = page
+  }, [page])
+
+  /**
    * 窗口化时把渲染出来的段落实测高度回写进几何表。
    * 估算高度和真实排版总有出入，不回写的话滚动位置会越飘越远。
    */
   useLayoutEffect(() => {
-    if (!virtual) return
     const root = rootRef.current
     if (!root) return
 
+    /**
+     * 分页版面下要回写的段号区间。
+     *
+     * **这里绝不能按 `!virtual` 早退**：演示书只有 17 段、走的是"全部渲染"路径，
+     * 但横向分页一样要靠实测高度才排得准 —— 早退的话页边界会一直建立在估算值上。
+     */
+    let from: number
+    let to: number
+    if (paged) {
+      if (pages.starts.length === 0) return
+      const lo = Math.max(0, page - 1)
+      const hi = Math.min(pages.starts.length - 1, page + 1)
+      from = pages.starts[lo]
+      to = pages.ends[hi]
+    } else {
+      if (!virtual) return
+      from = win.start
+      to = win.end
+    }
+
     let changed = false
-    for (let i = win.start; i <= win.end; i++) {
+    for (let i = from; i <= to; i++) {
       const el = root.querySelector(`[data-para="${i}"]`) as HTMLElement | null
       if (!el) continue
       const actual = el.offsetHeight
@@ -350,12 +570,18 @@ export default function ReaderView() {
         changed = true
       }
     }
-    if (changed) {
-      recomputeFrom(geom, win.start)
+    if (!changed) return
+
+    recomputeFrom(geom, from)
+    if (paged) {
+      // 页表要按修正后的偏移重算。只在真的变了(>1px)时才 bump，否则会
+      // 渲染→测量→bump→渲染 地转个不停
+      setGeomVersion((v) => v + 1)
+    } else {
       // 让撑高块用上新的偏移；下一轮实测高度与记录一致，不会反复触发
       setWin((w) => ({ ...w }))
     }
-  }, [virtual, win, geom])
+  }, [virtual, win, geom, paged, pages, page])
 
   /**
    * 改字号后按"当前段落"重新锚定滚动位置。
@@ -375,13 +601,53 @@ export default function ReaderView() {
     // 只在**字号**变化时重锚：段落数组换掉（换文档）是恢复位置那套逻辑的事
     if (!fontChanged || !root) return
 
-    const viewport = root.clientHeight || 600
     const idx = currentParaRef.current
+
+    // 分页版面下没有 scrollTop 可锚，改成"按当前段落重算页号" ——
+    // 字号一变几何表就重建、页边界跟着重排，停在原页号会跑到别的段落上去
+    if (paged) {
+      const p = pageOfPara(pages, idx)
+      if (p >= 0) goPage(p)
+      return
+    }
+
+    const viewport = root.clientHeight || 600
     // 减去 30% 视口高度，让这一段落回原来那条"当前段落"线上，而不是跳到顶端
     const top = Math.max(0, offsetOf(geom, idx) - viewport * 0.3)
     root.scrollTo({ top, behavior: 'auto' })
     if (virtual) setWin(computeWindow(geom, top, viewport, idx))
-  }, [prefs.fontSize, geom, virtual])
+  }, [prefs.fontSize, geom, virtual, paged, pages, goPage])
+
+  /**
+   * 切换阅读版面时保持位置（纵向 ⇄ 横向分页）。
+   *
+   * 与字号重锚是同一个套路：记下"当前段落"，换一套几何之后按它重新落位。
+   * **`lastLayoutRef` 要在锚定真正生效之后才更新** —— 切到分页时页表可能还没算出来
+   * （pageH 是挂载后才量的），那一轮 `pageOfPara` 给的是 -1；提前把 ref 改掉的话
+   * 这个 effect 再也不会重跑，位置就永远丢了。
+   */
+  const lastLayoutRef = useRef(prefs.layout)
+  useLayoutEffect(() => {
+    const root = rootRef.current
+    if (!root || lastLayoutRef.current === prefs.layout) return
+    const idx = currentParaRef.current
+
+    if (paged) {
+      if (pages.starts.length === 0) return // 页表还没就绪，留着 ref 等下一轮
+      // 纵向滚动留下的 scrollTop 在分页下没有意义，清掉
+      root.scrollTop = 0
+      lastLayoutRef.current = 'paged'
+      const p = pageOfPara(pages, idx)
+      if (p >= 0) goPage(p)
+      return
+    }
+
+    lastLayoutRef.current = 'scroll'
+    const viewport = root.clientHeight || 600
+    const top = Math.max(0, offsetOf(geom, idx) - viewport * 0.3)
+    root.scrollTo({ top, behavior: 'auto' })
+    if (virtual) setWin(computeWindow(geom, top, viewport, idx))
+  }, [prefs.layout, paged, pages, geom, virtual, goPage])
 
   /* 目录抽屉：Esc 关掉，以及把当前章节滚进视野 */
   useEffect(() => {
@@ -454,11 +720,11 @@ export default function ReaderView() {
     setPrefs({ bgImageId: null })
   }, [setPrefs])
 
-  /* ---- 翻页模式：点左右两侧翻屏 ---- */
+  /* ---- 横向分页：点两侧翻页 ---- */
 
   const onReaderClick = useCallback(
     (e: React.MouseEvent<HTMLDivElement>) => {
-      if (prefs.layout !== 'paged') return
+      if (!paged) return
       if (e.button !== 0 || e.defaultPrevented) return
 
       const t = e.target as HTMLElement
@@ -470,17 +736,72 @@ export default function ReaderView() {
       if (sel && !sel.isCollapsed) return
 
       const root = e.currentTarget
-      const r = root.getBoundingClientRect()
+      const r = root.getBoundingClientRect() // root 从不被平移，rect 稳定
       const x = e.clientX - r.left
-      const step = root.clientHeight - PAGE_OVERLAP
-
-      // 用 scrollBy 而不是 gotoParagraph：平滑滚动会自然触发上面那个
-      // 节流滚动回调，窗口化零改动继续工作；gotoParagraph 反而会跟动画打架
-      if (x > r.width * 0.7) root.scrollBy({ top: step, behavior: 'smooth' })
-      else if (x < r.width * 0.3) root.scrollBy({ top: -step, behavior: 'smooth' })
+      if (x > r.width * 0.7) turn(1)
+      else if (x < r.width * 0.3) turn(-1)
     },
-    [prefs.layout],
+    [paged, turn],
   )
+
+  /**
+   * 键盘翻页。挂在 window 上而不是 .reader-scroll 上 ——
+   * 那个容器没有 tabIndex，根本拿不到焦点，挂上去等于没挂。
+   */
+  useEffect(() => {
+    if (!paged) return
+    const onKey = (e: KeyboardEvent) => {
+      // 抽屉/对话框开着时方向键归它们（目录里也要能上下走）
+      if (tocOpen || settingsOpen || dialogOpen) return
+      const t = e.target as HTMLElement | null
+      if (
+        t &&
+        (t.tagName === 'INPUT' ||
+          t.tagName === 'TEXTAREA' ||
+          t.tagName === 'SELECT' ||
+          t.isContentEditable)
+      ) {
+        return
+      }
+      if (e.key === 'ArrowRight' || e.key === 'ArrowDown' || e.key === 'PageDown' || e.key === ' ') {
+        turn(1)
+        e.preventDefault()
+      } else if (e.key === 'ArrowLeft' || e.key === 'ArrowUp' || e.key === 'PageUp') {
+        turn(-1)
+        e.preventDefault()
+      }
+    }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  }, [paged, tocOpen, settingsOpen, dialogOpen, turn])
+
+  /**
+   * 滚轮翻页。
+   *
+   * 触控板一次轻扫会甩出几十个 delta 很小的事件，直接一事件翻一页的话
+   * 手指还没离板就翻过去四五页。所以先累加、够阈值再翻，翻完再加 250ms 的锁。
+   */
+  useEffect(() => {
+    if (!paged) return
+    const root = rootRef.current
+    if (!root) return
+    let lockUntil = 0
+    let acc = 0
+    const onWheel = (e: WheelEvent) => {
+      if (tocOpen || settingsOpen || dialogOpen) return
+      const now = Date.now()
+      if (now < lockUntil) return
+      acc += e.deltaY
+      if (Math.abs(acc) < 30) return
+      const dir = acc > 0 ? 1 : -1
+      acc = 0
+      lockUntil = now + 250
+      turn(dir)
+    }
+    // passive: root 是 overflow:hidden，本来就没有可 preventDefault 的滚动
+    root.addEventListener('wheel', onWheel, { passive: true })
+    return () => root.removeEventListener('wheel', onWheel)
+  }, [paged, tocOpen, settingsOpen, dialogOpen, turn])
 
   /**
    * B4：书签默认名 =「章节标题 + 首句片段」（.context/08-书签补充.md §2.3 的要求）。
@@ -696,73 +1017,61 @@ export default function ReaderView() {
           ref={rootRef}
           onClick={onReaderClick}
         >
-          <article className="reader-content" style={{ fontSize: `${prefs.fontSize}px` }}>
-            {/* 窗口上方用撑高块占位，保持滚动条长度正确 */}
-            {virtual && (
-              <div
-                style={{ height: geom.offsets[win.start] }}
-                aria-hidden="true"
-                data-spacer="top"
-              />
-            )}
-            {visibleParagraphs.map((p) => {
-              if (p.type === 'h1' || p.type === 'h2') {
-                const Tag = p.type === 'h1' ? 'h1' : 'h2'
+          {paged ? (
+            /* 横向分页：一条横排的页面带，靠 translateX 平移切换。
+               页内段落走正常文档流（页边界是对齐段落的，不会切断任何一段），
+               所以这里不需要纵向那套"撑高块 + 负偏移"。 */
+            <div
+              className={'reader-pages' + (prefs.pageTurn === 'snap' || jumped ? ' notrans' : '')}
+              style={{ transform: `translateX(${-page * 100}%)` }}
+            >
+              {pageSlots.map((p) => {
+                const from = pages.starts[p]
+                const slice = pages.slice[p]
                 return (
-                  <Tag key={p.paraIndex} data-para={p.paraIndex} className={'doc-' + p.type}>
-                    {p.text}
-                  </Tag>
+                  <div className="page-slot" key={p} data-page={p} style={{ left: `${p * 100}%` }}>
+                    <article className="reader-content" style={{ fontSize: `${prefs.fontSize}px` }}>
+                      {slice >= 0 ? (
+                        /* 长段落的第 slice 片：裁切高度取行高的整数倍，切点必然
+                           落在两行文字之间 —— 不会出现缺了半边的字（见 pagination.ts） */
+                        <div className="page-slice" style={{ height: sliceH }}>
+                          <div
+                            className="page-slice-inner"
+                            style={{ transform: `translateY(${-slice * sliceH}px)` }}
+                          >
+                            {renderParagraph(paragraphs[from])}
+                          </div>
+                        </div>
+                      ) : (
+                        paragraphs.slice(from, pages.ends[p] + 1).map(renderParagraph)
+                      )}
+                    </article>
+                  </div>
                 )
-              }
-              if (p.type === 'img') {
-                const ref = imageByPara.get(p.paraIndex)
-                if (!ref) {
-                  return (
-                    <figure key={p.paraIndex} data-para={p.paraIndex} className="doc-figure">
-                      <div className="figure-missing">
-                        <span>这一段的图片引用缺失</span>
-                      </div>
-                    </figure>
-                  )
-                }
-                return (
-                  <LazyImage
-                    key={p.paraIndex}
-                    docId={docId}
-                    imageId={ref.imageId}
-                    alt={ref.alt ?? ''}
-                    hasRemote={!!ref.imageUrl}
-                    scrollRoot={rootRef}
-                    keepResident={ra.playing}
-                    dataPara={p.paraIndex}
-                  />
-                )
-              }
-              return (
-                <p key={p.paraIndex} data-para={p.paraIndex} className="doc-p">
-                  {(byPara.get(p.paraIndex) ?? []).map((s) => (
-                    <span
-                      key={s.sentenceIndex}
-                      data-sentence={s.sentenceIndex}
-                      className={'sent' + (s.sentenceIndex === ra.cursor ? ' sent-active' : '')}
-                      onClick={() => ra.seek(s.sentenceIndex)}
-                    >
-                      {s.text}
-                    </span>
-                  ))}
-                </p>
-              )
-            })}
-            {virtual && (
-              <div
-                style={{
-                  height: Math.max(0, totalHeight(geom) - geom.offsets[win.end + 1]),
-                }}
-                aria-hidden="true"
-                data-spacer="bottom"
-              />
-            )}
-          </article>
+              })}
+            </div>
+          ) : (
+            <article className="reader-content" style={{ fontSize: `${prefs.fontSize}px` }}>
+              {/* 窗口上方用撑高块占位，保持滚动条长度正确 */}
+              {virtual && (
+                <div
+                  style={{ height: geom.offsets[win.start] }}
+                  aria-hidden="true"
+                  data-spacer="top"
+                />
+              )}
+              {visibleParagraphs.map(renderParagraph)}
+              {virtual && (
+                <div
+                  style={{
+                    height: Math.max(0, totalHeight(geom) - geom.offsets[win.end + 1]),
+                  }}
+                  aria-hidden="true"
+                  data-spacer="bottom"
+                />
+              )}
+            </article>
+          )}
         </div>
 
         {/* 收起控制条后浮在正文底部的胶囊，也是唯一的恢复入口。
