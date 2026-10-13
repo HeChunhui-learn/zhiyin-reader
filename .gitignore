@@ -4,3 +4,11 @@ dist/
 *.tsbuildinfo
 .env
 server/data/
+
+# 测试产物（不属于源码，不进仓库）
+coverage/
+test-results/
+e2e-report/
+playwright-report/
+*.e2e.log
+server/data-e2e/
