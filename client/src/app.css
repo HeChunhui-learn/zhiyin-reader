@@ -84,7 +84,11 @@ body,
 }
 
 body {
-  min-width: 1024px;
+  /*
+   * 原先写死 min-width: 1024px —— 这一条加上 index.html 的 width=1280，
+   * 两个一起把手机彻底挡在门外（页面永远比屏幕宽，只能整体缩小）。
+   * 现在由下面的响应式覆盖按三档处理，桌面端行为不变。
+   */
   font-family: system-ui, 'PingFang SC', 'Microsoft YaHei', sans-serif;
   font-size: 14px;
   color: var(--text);
@@ -1889,4 +1893,208 @@ button {
   padding: 4px 8px; border-radius: 6px;
   background: var(--bg);
   box-shadow: 0 2px 10px rgba(0, 0, 0, 0.12);
+}
+
+/* ==========================================================================
+   响应式：手机 / 平板
+   --------------------------------------------------------------------------
+   项目原先只做桌面（body 写死 min-width: 1024px，index.html 的 viewport 写死 1280）。
+   这里**桌面优先**地加覆盖，而不是改写成移动优先 —— 上面 1800 多行全是按桌面写的，
+   重写一遍风险太大；覆盖只影响窄屏，≥1280px 的桌面端一个像素都不会动。
+
+   三档：
+     手机   < 768px       竖屏为主
+     平板   768–1279px    两栏仍在，但收窄
+     桌面   ≥ 1280px      原有设计，此处不加任何覆盖
+   ========================================================================== */
+
+/* ------------------------------------------------ 平板：768–1279px */
+@media (max-width: 1279px) {
+  .book-grid {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+  .guide-stage {
+    padding: 48px 40px 36px;
+  }
+  .shelf-side {
+    width: 168px;
+  }
+}
+
+/* ------------------------------------------------ 手机：< 768px */
+@media (max-width: 767px) {
+  /* ---- 引导页：三张能力卡片竖排，整页可滚 ---- */
+  .guide-page {
+    /* 居中的 flex 在内容高于视口时会把顶部顶出屏幕，改成顶对齐 */
+    align-items: flex-start;
+  }
+  .guide-stage {
+    width: 100%;
+    max-width: 880px;
+    padding: 40px 20px 32px;
+  }
+  .guide-cards {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  /* ---- 登录页：左栏从 45% 的整块变成顶部一条，表单在下面 ---- */
+  .login-page {
+    grid-template-columns: minmax(0, 1fr);
+    grid-template-rows: auto minmax(0, 1fr);
+    height: auto;
+    min-height: 100%;
+  }
+  .login-brand {
+    padding: 26px 22px 24px;
+  }
+  .login-brand-head {
+    gap: 12px;
+  }
+  .login-brand-logo {
+    font-size: 24px;
+    letter-spacing: 2px;
+  }
+  .login-brand-sub {
+    font-size: 11px;
+    letter-spacing: 0;
+  }
+  .login-brand-slogan {
+    margin-top: 20px;
+    font-size: 26px;
+    letter-spacing: 4px;
+  }
+  .login-brand-slogan-note {
+    margin-top: 8px;
+    font-size: 12px;
+    letter-spacing: 2px;
+  }
+  /* 画面是内联 SVG，宽度改小的时候必须把高度交回给 auto，否则会被拉变形 */
+  .ink-landscape {
+    width: 100%;
+    max-width: 280px;
+    height: auto;
+    margin-top: 18px;
+  }
+  .login-panel {
+    align-items: flex-start;
+    padding: 22px 16px 40px;
+  }
+  .login-card {
+    width: 100%;
+    max-width: 400px;
+    padding: 22px 20px;
+  }
+
+  /* ---- 书架：左侧竖栏改成横向可滑的分类条 ---- */
+  .shelf-topbar {
+    height: auto;
+    padding: 10px 16px;
+    gap: 10px;
+    flex-wrap: wrap;
+  }
+  .shelf-brand {
+    font-size: 16px;
+    letter-spacing: 0;
+  }
+  .shelf-search {
+    width: 100%;
+    margin-left: 0;
+    order: 3; /* 搜索框自己占一行，排在最后 */
+  }
+  .shelf-user {
+    gap: 8px;
+  }
+  .shelf-body {
+    flex-direction: column;
+  }
+  .shelf-side {
+    flex-direction: row;
+    align-items: center;
+    width: 100%;
+    gap: 8px;
+    padding: 10px 16px;
+    border-right: none;
+    border-bottom: 1px solid var(--border);
+    overflow-x: auto;
+  }
+  .side-item {
+    flex: none;
+    white-space: nowrap;
+    padding: 7px 12px;
+  }
+  /* 「阅读时长」原先靠一条上边框跟分类项区分，横排后这条线没有意义了 */
+  .side-item-link {
+    margin-top: 0;
+    border-top: none;
+    border-radius: 7px;
+  }
+  .shelf-main {
+    padding: 16px;
+  }
+  .book-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 14px;
+  }
+
+  /* ---- 阅读器：外壳铺满，正文两侧留出可读的边距 ---- */
+  .reader-topbar {
+    height: auto;
+    padding: 10px 12px;
+    gap: 8px;
+    flex-wrap: wrap;
+  }
+  .reader-title {
+    flex: 1 1 120px;
+    min-width: 0;
+    font-size: 15px;
+  }
+  .reader-content {
+    padding-inline: 18px;
+  }
+  .reader-scroll {
+    padding: 20px 0 40px;
+  }
+  .playbar {
+    height: auto;
+    padding: 10px 12px;
+    gap: 8px;
+    flex-wrap: wrap;
+  }
+  /* 抽屉改成近乎全宽；窄屏上留一条缝，好让读者看出后面还有正文 */
+  .toc-panel.drawer,
+  .toc-panel.drawer-right {
+    width: 88%;
+  }
+  .modal {
+    width: calc(100% - 24px);
+    max-width: 640px;
+    max-height: 88vh;
+  }
+
+  /* ---- 阅读时长 / 个人主页 ---- */
+  .profile-main,
+  .stats-main {
+    padding: 18px 16px;
+  }
+  .profile-card {
+    padding: 20px 18px;
+  }
+  .profile-avatar-row {
+    flex-wrap: wrap;
+    gap: 16px;
+  }
+  .profile-row {
+    max-width: none;
+  }
+  .stat-cards {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  /* 按书排行的三栏（书名 / 进度条 / 时长）在窄屏上竖排 */
+  .stat-book {
+    grid-template-columns: minmax(0, 1fr);
+    gap: 6px;
+  }
+  .stat-book-time {
+    text-align: left;
+  }
 }
