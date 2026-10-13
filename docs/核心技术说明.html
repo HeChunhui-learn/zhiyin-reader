@@ -1,0 +1,513 @@
+<title>知音漫卷核心技术说明</title>
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Noto+Serif+SC:wght@600&family=Noto+Sans+SC:wght@400;600&display=swap">
+<style>
+  /*
+   * 与《多端适配方案》同一套设计语言：沿用项目 app.css 的设计令牌，
+   * 标题用中文衬线。两份文档放一起应当像一套。
+   *
+   * 布局：单栏 760px；技术说明靠表格与代码块承担信息密度，不做花哨装饰。
+   */
+  :root {
+    --primary: #2f6fed;
+    --fg: #1f2328;
+    --muted: #6b7280;
+    --border: #e5e7eb;
+    --bg: #ffffff;
+    --surface: #f6f7f9;
+    --code-bg: #f2f4f7;
+    --ok-bg: #eaf7ef;
+    --ok-fg: #2f7d51;
+    --warn-bg: #fff5e6;
+    --warn-fg: #b8730b;
+    --font-display: 'Noto Serif SC', 'Songti SC', 'SimSun', Georgia, serif;
+    --font-body: 'Noto Sans SC', system-ui, 'PingFang SC', 'Microsoft YaHei', sans-serif;
+    --font-mono: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+    color-scheme: light;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme='light']) {
+      --primary: #4c8dff;
+      --fg: #e6e8eb;
+      --muted: #9aa3b0;
+      --border: #2c313a;
+      --bg: #14171c;
+      --surface: #1b1e24;
+      --code-bg: #101318;
+      --ok-bg: #17301f;
+      --ok-fg: #6fd39a;
+      --warn-bg: #3a2f14;
+      --warn-fg: #e0b45c;
+      color-scheme: dark;
+    }
+  }
+  :root[data-theme='dark'] {
+    --primary: #4c8dff;
+    --fg: #e6e8eb;
+    --muted: #9aa3b0;
+    --border: #2c313a;
+    --bg: #14171c;
+    --surface: #1b1e24;
+    --code-bg: #101318;
+    --ok-bg: #17301f;
+    --ok-fg: #6fd39a;
+    --warn-bg: #3a2f14;
+    --warn-fg: #e0b45c;
+    color-scheme: dark;
+  }
+
+  body {
+    background: var(--bg);
+    color: var(--fg);
+    font-family: var(--font-body);
+    font-size: 15px;
+    line-height: 1.85;
+  }
+  .page {
+    max-width: 780px;
+    margin-inline: auto;
+    padding-inline: 20px;
+    padding-block: 44px 80px;
+  }
+
+  header.doc {
+    display: flex;
+    flex-direction: column;
+    gap: 14px;
+    padding-bottom: 26px;
+    border-bottom: 1px solid var(--border);
+  }
+  .eyebrow {
+    font-size: 12px;
+    letter-spacing: 0.14em;
+    color: var(--muted);
+  }
+  h1 {
+    margin: 0;
+    font-family: var(--font-display);
+    font-size: clamp(24px, 5vw, 31px);
+    font-weight: 600;
+    line-height: 1.35;
+    text-wrap: balance;
+  }
+  .standfirst {
+    margin: 0;
+    color: var(--muted);
+    max-width: 62ch;
+  }
+
+  h2 {
+    margin: 0;
+    font-family: var(--font-display);
+    font-size: 20px;
+    font-weight: 600;
+    text-wrap: balance;
+  }
+  h3 {
+    margin: 0;
+    font-size: 15px;
+    font-weight: 600;
+  }
+  section { margin-top: 52px; }
+  section > h2 + * { margin-top: 14px; }
+  p { margin: 0; }
+  p + p { margin-top: 12px; }
+  strong { font-weight: 600; }
+
+  /* 章节号：这三块是并列的三个子系统，编号只是索引，用弱化的等宽字排 */
+  h2 .no {
+    font-family: var(--font-mono);
+    font-size: 13px;
+    font-weight: 600;
+    color: var(--primary);
+    margin-right: 10px;
+    letter-spacing: 0.04em;
+  }
+  h3.sub { margin-top: 30px; }
+  h3.sub .step {
+    font-family: var(--font-mono);
+    font-size: 12px;
+    color: var(--muted);
+    margin-right: 8px;
+  }
+
+  .scroll-x { overflow-x: auto; margin-top: 14px; }
+  table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 14px;
+    min-width: 460px;
+  }
+  th, td {
+    text-align: left;
+    padding: 10px 14px;
+    border-bottom: 1px solid var(--border);
+    vertical-align: top;
+  }
+  thead th {
+    font-size: 12px;
+    font-weight: 600;
+    letter-spacing: 0.06em;
+    color: var(--muted);
+    border-bottom-color: var(--fg);
+    white-space: nowrap;
+  }
+  tbody tr:last-child td { border-bottom: none; }
+  td.num { font-variant-numeric: tabular-nums; white-space: nowrap; }
+  td.v { font-weight: 600; white-space: nowrap; }
+  /* 第一列都是短标签（"单文件上限""图片（IndexedDB）"），折行会很难看 */
+  tbody td:first-child { white-space: nowrap; }
+
+  code {
+    font-family: var(--font-mono);
+    font-size: 0.87em;
+    padding: 1.5px 5px;
+    border: 1px solid var(--border);
+    border-radius: 5px;
+    background: var(--code-bg);
+    overflow-wrap: anywhere;
+  }
+  pre {
+    margin: 14px 0 0;
+    padding: 16px 18px;
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    background: var(--code-bg);
+    overflow-x: auto;
+    font-size: 13px;
+    line-height: 1.7;
+  }
+  pre code {
+    border: none;
+    padding: 0;
+    background: none;
+    font-size: inherit;
+    overflow-wrap: normal;
+    white-space: pre;
+  }
+  .cmt { color: var(--muted); }
+
+  ul.tight { margin: 10px 0 0; padding-left: 20px; color: var(--muted); }
+  ul.tight li + li { margin-top: 5px; }
+  ul.tight code { color: var(--fg); }
+
+  .key {
+    margin-top: 16px;
+    padding: 16px 20px;
+    border: 1px solid var(--border);
+    border-left: 3px solid var(--primary);
+    border-radius: 10px;
+    background: var(--surface);
+  }
+  .key p { font-size: 15px; }
+  .key .lead {
+    font-family: var(--font-display);
+    font-weight: 600;
+    font-size: 16px;
+    line-height: 1.65;
+  }
+
+  .note {
+    margin-top: 16px;
+    padding: 14px 18px;
+    border-radius: 10px;
+    background: var(--warn-bg);
+    color: var(--warn-fg);
+    font-size: 14px;
+  }
+  .note b { color: inherit; }
+
+  footer.doc {
+    margin-top: 54px;
+    padding-top: 20px;
+    border-top: 1px solid var(--border);
+    font-size: 13px;
+    color: var(--muted);
+  }
+
+  @media (max-width: 560px) {
+    pre { padding: 13px 14px; font-size: 12px; }
+  }
+</style>
+
+<div class="page">
+  <header class="doc">
+    <div class="eyebrow">知音漫卷 · 课程设计 · 第一组</div>
+    <h1>核心技术说明</h1>
+    <p class="standfirst">
+      三个子系统的实现原理与所依赖的技术：导入解析、图文混排阅读、逐句高亮跟读。
+      全部对着代码核实，结论都标了出处文件。
+    </p>
+  </header>
+
+  <section>
+    <h2><span class="no">01</span>导入格式与大小限制</h2>
+    <p>
+      支持三种格式，且<strong>全部在前端解析</strong>（项目裁决 1：服务端只负责存储与分发解析结果，
+      不引入 EPUB / Markdown 解析依赖）。
+    </p>
+
+    <div class="scroll-x">
+      <table>
+        <thead>
+          <tr><th>格式</th><th>解析器</th><th>说明</th></tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td class="v">EPUB</td>
+            <td><code>epub.js</code></td>
+            <td>只取解析结果，不用它的渲染层；按 spine 顺序取正文与插图</td>
+          </tr>
+          <tr>
+            <td class="v">TXT</td>
+            <td>自己实现 <code>parse/txt.ts</code></td>
+            <td>按空行分段；<code>第X章/卷/部/篇/回</code> 识别为 h1，<code>第X节</code> 为 h2</td>
+          </tr>
+          <tr>
+            <td class="v">Markdown</td>
+            <td><code>marked</code></td>
+            <td>用 lexer 拿标题、段落与图片引用</td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+    <p style="margin-top:12px;color:var(--muted);font-size:14px">
+      扩展名判定在 <code>parse/index.ts</code> 的 <code>formatOf</code>，只认 <code>txt / md / markdown / epub</code>。
+    </p>
+
+    <h3 class="sub"><span class="step">1.1</span>大小限制</h3>
+    <div class="scroll-x">
+      <table>
+        <thead>
+          <tr><th>限制项</th><th>值</th><th>在哪</th></tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td>单文件上限</td>
+            <td class="v num">500MB</td>
+            <td><code>parse/index.ts</code> 与 <code>routes/resources.ts</code> 各一份 <code>MAX_FILE_BYTES</code>（同值）；<code>app.ts</code> 的 <code>BODY_LIMIT</code> 也是 500MB</td>
+          </tr>
+          <tr>
+            <td>段落数</td>
+            <td class="v num">20000 段</td>
+            <td><code>routes/documents.ts</code> 的 <code>MAX_PARAGRAPHS</code>，超了返回 <code>413</code></td>
+          </tr>
+          <tr>
+            <td>单张图片</td>
+            <td class="v num">10MB</td>
+            <td><code>routes/resources.ts</code> <code>MAX_IMAGE_BYTES</code></td>
+          </tr>
+          <tr>
+            <td>头像</td>
+            <td class="v num">2MB</td>
+            <td><code>routes/resources.ts</code> <code>MAX_AVATAR_BYTES</code></td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+    <p style="margin-top:12px">
+      前端在<strong>读文件之前</strong>就用 <code>file.size</code> 预检，超限直接给中文提示（带实际大小），
+      不会把 500MB 读进内存再失败。
+    </p>
+
+    <h3 class="sub"><span class="step">1.2</span>缓存上限（与导入限制是两回事）</h3>
+    <div class="scroll-x">
+      <table>
+        <thead>
+          <tr><th>缓存</th><th>上限</th><th>淘汰</th></tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td>图片（IndexedDB）</td>
+            <td class="num">单文档 300 张 或 总量 200MB，先到者为准</td>
+            <td>按最后访问时间 LRU</td>
+          </tr>
+          <tr>
+            <td>音频（IndexedDB）</td>
+            <td class="num">单文档 60MB</td>
+            <td>按最后访问时间 LRU</td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+
+    <h3 class="sub"><span class="step">1.3</span>语音合成侧的限制</h3>
+    <ul class="tight">
+      <li>单句文本 ≤ <strong>500 字</strong>（超长句在切分阶段已按 200 字兜底，500 足够宽松）</li>
+      <li>语速区间 <strong>0.5 – 2.0</strong></li>
+      <li>服务端合成并发 <strong>2</strong>、队列 <strong>8</strong>，超限返回 <code>429 RATE_LIMITED</code></li>
+      <li>上游超时 <strong>20 秒</strong> → <code>504 UPSTREAM_TIMEOUT</code>；上游失败 → <code>502 UPSTREAM_TTS_FAILED</code></li>
+    </ul>
+  </section>
+
+  <section>
+    <h2><span class="no">02</span>图文混排阅读</h2>
+
+    <div class="key">
+      <p class="lead">图片也是一种「段落」。</p>
+      <p style="margin-top:8px">
+        段落的类型字段 <code>para_type</code> 有 <strong>h1 / h2 / p / img</strong> 四种，
+        图片段在正文流里<strong>占一个位置</strong>（<code>paraIndex</code>）。
+        所以图文顺序天然由段落序决定，不需要额外维护"这张图在第几段之间"。
+      </p>
+    </div>
+
+    <h3 class="sub"><span class="step">2.1</span>二进制全程不走导入链路</h3>
+    <p>这是这套设计里最关键的一个决策：<strong>导入时只传元数据，图片本体在阅读时才懒上传。</strong></p>
+
+    <ul class="tight">
+      <li>
+        <strong>解析阶段</strong> —— EPUB 用 epub.js 的 archive（内部是 JSZip）按后缀抽图，
+        拿到 <code>Blob</code> 存进 <code>imageBlobs: Map&lt;imageId, Blob&gt;</code>；
+        Markdown 用 <code>marked</code> 的词法分析收集引用
+      </li>
+      <li>
+        <strong>导入阶段</strong> —— <code>POST /api/documents</code> 只带
+        <code>imageRefs: [{imageId, paraIndex, src, alt}]</code>，
+        <strong>一个字节的图片都不传</strong>；Blob 写进浏览器 IndexedDB（<code>render/imageCache.ts</code>）
+      </li>
+      <li>
+        <strong>阅读阶段</strong> —— <code>render/LazyImage.tsx</code> 用 <code>IntersectionObserver</code>
+        判断是否接近视口，参数为 <code>{ root: 滚动容器, rootMargin: '200px 0px', threshold: 0.01 }</code>
+      </li>
+      <li>
+        <strong>懒上传</strong> —— 首次进入视口时：先查本地 IndexedDB → 再取服务端 →
+        服务端也没有（<code>imageUrl</code> 为空）就把本地 Blob <code>PUT</code> 上去。
+        此后一律经服务端取，<strong>前端不直连存储</strong>
+      </li>
+    </ul>
+
+    <p style="margin-top:14px">
+      收益：导入一篇带 300 张插图的 EPUB，上传的只有正文 JSON。
+    </p>
+
+    <h3 class="sub"><span class="step">2.2</span>几个踩过的坑</h3>
+    <ul class="tight">
+      <li>
+        <strong>图片段高度固定 200px</strong>（<code>.figure-holder</code> 的 <code>min-height</code>），
+        所以窗口化渲染的高度估算里，图片段<strong>不随字号缩放</strong>
+      </li>
+      <li>
+        图片离开视口要 <code>revokeObjectURL</code>（IndexedDB 副本保留），否则每张图漏一份
+      </li>
+      <li>
+        <code>querySelectorAll('img')</code> <strong>查不到元素自身</strong>，
+        所以 <code>&lt;figure&gt;&lt;img/&gt;&lt;/figure&gt;</code> 这种图片作为直接子元素的结构要单独分支处理，否则漏图
+      </li>
+      <li>
+        epub.js 自身三个坑：必须传 <code>{ replacements: 'none' }</code>；
+        <code>archive.getBlob</code> 要求路径带前导斜杠；default 导出有两种打包形态
+      </li>
+    </ul>
+  </section>
+
+  <section>
+    <h2><span class="no">03</span>逐句高亮跟读</h2>
+
+    <div class="key">
+      <p class="lead">句子是跟读的最小单位，游标由真实的「播放结束」事件驱动——整个链路里没有任何定时器。</p>
+      <p style="margin-top:8px;color:var(--muted)">
+        R0–R3 用的是 <code>setInterval</code> 假推进，R4 全部删掉换成了这个。
+        用定时器的话，「高亮位置与音频严格对应」这条验收要求不成立。
+      </p>
+    </div>
+
+    <h3 class="sub"><span class="step">3.1</span>切分：纯前端、纯 TS</h3>
+    <p>
+      <code>readalong/splitSentences.ts</code> 实现规则 <strong>R1–R10</strong>：
+      句末标点切分、分号冒号不切、引号括号内的句末标点照切、连续省略号只算一次边界、
+      缩写与小数不切、段内换行归一为空格、<strong>超长句 200 字兜底</strong>、空句丢弃、索引稳定。
+    </p>
+    <p>
+      句子在前端切好后<strong>随段落一起上传</strong>，落 <code>T_Sentence</code>。
+      只切「参与跟读」的段落（<code>speaksInReadAlong</code>）——标题段和图片段不切，
+      否则库里会存下阅读器永远用不到的句子。
+    </p>
+
+    <h3 class="sub"><span class="step">3.2</span>引擎抽象：这套设计的核心</h3>
+    <pre><code>interface TtsEngine {
+  speak(text, opts, signal): Promise&lt;void&gt;   <span class="cmt">// 念完才 resolve</span>
+  preload(texts, opts): void
+  stop(): void
+}</code></pre>
+    <p style="margin-top:14px">
+      两个实现的机制<strong>完全不同</strong>，但对外收敛成同一个接口：
+    </p>
+    <div class="scroll-x">
+      <table>
+        <thead>
+          <tr><th>引擎</th><th>怎么知道「念完了」</th></tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td class="v">ServerTtsEngine</td>
+            <td>拿到音频二进制，靠 <code>&lt;audio&gt;</code> 的 <strong><code>ended</code> 事件</strong> resolve</td>
+          </tr>
+          <tr>
+            <td class="v">BrowserTtsEngine</td>
+            <td>直接调 Web Speech，靠 <code>SpeechSynthesisUtterance</code> 的 <strong><code>onend</code></strong> resolve</td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+    <p style="margin-top:12px">这就是为什么上层的游标推进<strong>只写一份</strong>。</p>
+
+    <h3 class="sub"><span class="step">3.3</span>播放循环</h3>
+    <pre><code>for (let i = start; i &lt; sentences.length; i++) {
+  await engine.speak(sentences[i].text, { voice, rate }, ac.signal)
+  cursorRef.current = nextIdx
+  setCursor(nextIdx)              <span class="cmt">// ← 高亮在这里推进</span>
+  engine.preload(next 3 句)        <span class="cmt">// 预取后 2 句</span>
+}</code></pre>
+    <p style="margin-top:14px">
+      游标只在 <code>await</code> 返回<strong>之后</strong>才推进——这就是「高亮位置与音频严格对应」的落地方式。
+      预取后 2 句（<code>PRELOAD_AHEAD = 2</code>）用来压句间停顿。
+    </p>
+
+    <h3 class="sub"><span class="step">3.4</span>两级缓存</h3>
+    <pre><code><span class="cmt">// 客户端与服务端各一份实现，必须逐字节一致</span>
+sha256([engine, voice, String(rate), text].join('\u0001'))</code></pre>
+    <ul class="tight" style="margin-top:14px">
+      <li>用 <code>\u0001</code> 做分隔符——直接拼接会有歧义</li>
+      <li>
+        <strong>改一边必须改另一边</strong>（<code>ttsCacheKey.ts</code> / <code>server/src/tts/cacheKey.ts</code>），
+        否则客户端永远命中不了服务端缓存
+      </li>
+      <li>客户端 IndexedDB 命中 → <strong>连请求都不发</strong></li>
+      <li>服务端磁盘 <code>server/data/tts/</code> 命中 → 回 <code>X-Cache: hit</code></li>
+    </ul>
+
+    <h3 class="sub"><span class="step">3.5</span>降级链（自动）</h3>
+    <p>
+      <code>GET /api/tts/engines</code> 里 <code>available=false</code> 的引擎不进前端列表。
+      Kokoro 没起来时只剩浏览器原生，界面显示「已降级为浏览器发声」，
+      并明确它 <code>realAudio = false</code>、<strong>只支持句子级高亮</strong>
+      （原生接口不返回字级时间戳）。前端<strong>不直连第三方服务</strong>，一律经服务端代理。
+    </p>
+
+    <h3 class="sub"><span class="step">3.6</span>高亮与跟随</h3>
+    <ul class="tight">
+      <li>句子渲染成 <code>&lt;span class="sent" data-sentence={i}&gt;</code>，<code>i === cursor</code> 时加 <code>sent-active</code></li>
+      <li><code>autoScroll</code> 开启时把当前句 <code>scrollIntoView({ block: 'center' })</code></li>
+      <li>
+        读者点任意句子 → <code>seek</code> 到那句，同时<strong>暂停自动滚动</strong>并弹出「继续跟读」提示条
+        （手动操作优先级高于自动推进）
+      </li>
+    </ul>
+  </section>
+
+  <section>
+    <h2>一句话总结</h2>
+    <div class="note">
+      <p>
+        <b>导入</b>：前端解析、只传结构化结果、图片二进制根本不走导入链路。<br>
+        <b>混排</b>：图片就是段落，顺序由段落序决定。<br>
+        <b>跟读</b>：句子是最小单位，游标由真实播放事件驱动，两级缓存按 <code>sha256(engine+voice+rate+text)</code> 对齐。
+      </p>
+    </div>
+  </section>
+
+  <footer class="doc">
+    基于 <code>dev-mobile</code> 分支的实际代码核查。
+  </footer>
+</div>
