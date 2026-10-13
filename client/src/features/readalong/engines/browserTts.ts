@@ -24,28 +24,73 @@ function listZhVoices(): VoiceOption[] {
     .map((v) => ({ voice: v.voiceURI, label: v.name, lang: v.lang }))
 }
 
+/* --------------------------------------------------------- 嗓音缓存 */
+
+/**
+ * 缓存与监听都放在**模块级**，不能挂在引擎实例上。
+ *
+ * 原来挂在实例上，结果是："（无可用音色）"那个 bug ——
+ * Chrome 的 `getVoices()` **首次调用几乎总是返回空**，要等 `voiceschanged` 才有；
+ * 而 `engines/index.ts` 的 `BROWSER_OPTION()` 每次新建一个实例、拷走当时的
+ * voices 数组就把实例丢掉，`voiceschanged` 里回写的 `this.cachedVoices` 换的是
+ * 一个没人再读的对象的字段 —— 拷出去的那份引用永远停在空数组，
+ * 于是降级到浏览器原生时音色下拉框一直是空且 disabled，
+ * 哪怕系统里明明装着中文嗓音（这台机器上就有 3 个）。
+ */
+let cachedVoices: VoiceOption[] = []
+let voicesBound = false
+/** 等着"嗓音到货"的回调，voiceschanged 一到就全部唤醒 */
+const voiceWaiters: (() => void)[] = []
+
+function refreshVoices(): VoiceOption[] {
+  const loaded = listZhVoices()
+  if (loaded.length > 0) cachedVoices = loaded
+  return cachedVoices
+}
+
+function bindVoicesChanged(): void {
+  if (voicesBound) return
+  const s = synth()
+  if (!s) return
+  voicesBound = true
+  s.addEventListener('voiceschanged', () => {
+    refreshVoices()
+    // 一次性唤醒：这一轮等的人都在等同一个事件
+    while (voiceWaiters.length > 0) voiceWaiters.shift()?.()
+  })
+}
+
+/**
+ * 等浏览器把嗓音列表填上（已就绪则立刻返回）。
+ *
+ * 带超时兜底，**绝不吊死调用方** —— 万一某个浏览器压根不发 voiceschanged，
+ * 宁可少几个音色可选，也不能让阅读界面卡在"正在加载"。
+ */
+export function whenBrowserVoicesReady(timeoutMs = 800): Promise<void> {
+  if (!synth()) return Promise.resolve()
+  bindVoicesChanged()
+  if (refreshVoices().length > 0) return Promise.resolve()
+
+  return new Promise<void>((resolve) => {
+    let done = false
+    const finish = () => {
+      if (done) return
+      done = true
+      resolve()
+    }
+    voiceWaiters.push(finish)
+    setTimeout(finish, timeoutMs)
+  })
+}
+
 export class BrowserTtsEngine implements TtsEngine {
   readonly id = 'browser-native'
   readonly label = '浏览器原生（降级）'
   readonly realAudio = false
 
-  private cachedVoices: VoiceOption[] = []
-  private voicesBound = false
-
   get voices(): VoiceOption[] {
-    const loaded = listZhVoices()
-    if (loaded.length > 0) this.cachedVoices = loaded
-    else if (!this.voicesBound) {
-      // getVoices 首次调用经常返回空，等 voiceschanged 再取一次
-      this.voicesBound = true
-      const s = synth()
-      if (s) {
-        s.addEventListener('voiceschanged', () => {
-          this.cachedVoices = listZhVoices()
-        })
-      }
-    }
-    return this.cachedVoices
+    bindVoicesChanged()
+    return refreshVoices()
   }
 
   isSupported(): boolean {

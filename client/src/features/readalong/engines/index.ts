@@ -1,5 +1,5 @@
 import { api, type TtsVoice, type TtsVoiceDetail, type TtsVoicesResponse } from '../../../api/client'
-import { BrowserTtsEngine } from './browserTts'
+import { BrowserTtsEngine, whenBrowserVoicesReady } from './browserTts'
 import { ServerTtsEngine } from './serverTts'
 import type { TtsEngine, VoiceOption } from './types'
 
@@ -76,13 +76,16 @@ function toMissingOption(v: TtsVoiceDetail): VoiceOption {
  * 保证跟读功能在任何情况下都有东西可用（契约 §9.2 的降级要求）。
  */
 export async function loadEngines(): Promise<EnginesLoadResult> {
-  const browser = BROWSER_OPTION()
-
   try {
-    // 音色目录拉不到不算致命：退回"只有上游报的音色"，界面上少几个置灰项而已
+    // 音色目录拉不到不算致命：退回"只有上游报的音色"，界面上少几个置灰项而已。
+    //
+    // whenBrowserVoicesReady 放在这一批里一起等：Chrome 的 getVoices() 首次调用
+    // 几乎总是返回空、要等 voiceschanged，不等一下的话下面 BROWSER_OPTION() 就会
+    // 把空列表快照进去，降级后音色下拉框永远是空的。它带超时兜底，最坏也就多等 800ms
     const [res, catalog] = await Promise.all([
       api.listTtsEngines(),
       api.listTtsVoices().catch(() => null),
+      whenBrowserVoicesReady(),
     ])
 
     // 本机没装的中文音色。只挑中文的 —— 本项目正文都是中文，
@@ -92,11 +95,22 @@ export async function loadEngines(): Promise<EnginesLoadResult> {
       .map(toMissingOption)
 
     const localUp = catalog?.engineAvailable ?? false
+    // 等过了 whenBrowserVoicesReady 再建，这一步才拿得到浏览器填好的嗓音
+    const browser = BROWSER_OPTION()
 
     const usable: EngineOption[] = res.engines
       .filter((e) => e.available)
       .map((e) => {
-        const voices = e.voices.map((v) => toVoiceOption(v, catalog))
+        /**
+         * 浏览器原生那条的**音色列表只有一个来源：客户端自己枚举**。
+         * 服务端在 §9.1 里也会列出一条 browser-native，但它的 voices 恒为 `[]`
+         * —— 服务端当然枚举不出浏览器里装了哪些嗓音。这里必须换成
+         * BROWSER_OPTION() 的那份，否则下面 `usable` 里服务端那条会被 push 进来、
+         * 盖掉客户端的（`if (!usable.some(...))` 只在那条缺失时才补），
+         * 结果就是降级后音色下拉框永远空着且 disabled。
+         */
+        const isBrowser = e.engine === 'browser-native'
+        const voices = isBrowser ? browser.voices : e.voices.map((v) => toVoiceOption(v, catalog))
         // 本地引擎活着 → 挂它名下；本地引擎没起来（它按契约 §9.1 不进列表）→
         // 挂到浏览器原生那条上。否则读者在降级状态下只会看到寥寥几个系统嗓音，
         // 既不知道有更好的中文音色，也不知道是"没装包"而不是"没有"
@@ -124,7 +138,10 @@ export async function loadEngines(): Promise<EnginesLoadResult> {
       serverEngineDown: res.engines.some((e) => !e.available),
     }
   } catch {
-    // 服务端不可达：直接用浏览器原生，不打扰用户
+    // 服务端不可达：直接用浏览器原生，不打扰用户。
+    // 这条路更要等嗓音 —— 浏览器原生是唯一选项，列表空着的话读者连音色都换不了
+    await whenBrowserVoicesReady()
+    const browser = BROWSER_OPTION()
     return { defaultId: browser.id, options: [browser], serverEngineDown: true }
   }
 }
