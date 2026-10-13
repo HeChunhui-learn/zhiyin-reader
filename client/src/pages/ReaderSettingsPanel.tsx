@@ -3,7 +3,8 @@ import {
   FONT_SIZES,
   MAX_FONT_SIZE,
   MIN_FONT_SIZE,
-  type PageMode,
+  type Layout,
+  type PageTurn,
   type ReaderPrefs,
   type ReaderTheme,
 } from '../features/settings/prefs'
@@ -30,9 +31,14 @@ const THEMES: { value: ReaderTheme; label: string }[] = [
   { value: 'dark', label: '夜晚' },
 ]
 
-const PAGE_MODES: { value: PageMode; label: string; hint: string }[] = [
-  { value: 'scroll', label: '滚动', hint: '像网页一样上下滚动' },
-  { value: 'paged', label: '点击翻页', hint: '点正文左侧回上一屏，点右侧翻下一屏' },
+const LAYOUTS: { value: Layout; label: string; hint: string }[] = [
+  { value: 'scroll', label: '纵向滚动', hint: '像网页一样上下滚动' },
+  { value: 'paged', label: '横向分页', hint: '正文按屏幕高度切成页，左右翻页' },
+]
+
+const PAGE_TURNS: { value: PageTurn; label: string; hint: string }[] = [
+  { value: 'slide', label: '左右平移', hint: '翻页时正文横向平移过渡' },
+  { value: 'snap', label: '整屏跳转', hint: '翻页时直接切到下一页，没有过渡' },
 ]
 
 export default function ReaderSettingsPanel({
@@ -94,22 +100,45 @@ export default function ReaderSettingsPanel({
       </div>
 
       <div className="set-group">
-        <div className="set-label">翻页方式</div>
+        <div className="set-label">阅读版面</div>
         <div className="set-seg">
-          {PAGE_MODES.map((m) => (
+          {LAYOUTS.map((m) => (
             <button
               key={m.value}
-              className={prefs.pageMode === m.value ? 'on' : ''}
+              className={prefs.layout === m.value ? 'on' : ''}
               title={m.hint}
-              onClick={() => setPrefs({ pageMode: m.value })}
+              onClick={() => setPrefs({ layout: m.value })}
             >
               {m.label}
             </button>
           ))}
         </div>
         <p className="set-note">
-          {PAGE_MODES.find((m) => m.value === prefs.pageMode)?.hint}
-          。滚轮与键盘在两种方式下都能用。
+          {LAYOUTS.find((m) => m.value === prefs.layout)?.hint}
+          。滚轮与键盘在两种版面下都能用。
+        </p>
+      </div>
+
+      <div className="set-group">
+        <div className="set-label">翻页方式</div>
+        <div className="set-seg">
+          {PAGE_TURNS.map((m) => (
+            <button
+              key={m.value}
+              className={prefs.pageTurn === m.value ? 'on' : ''}
+              title={m.hint}
+              onClick={() => setPrefs({ pageTurn: m.value })}
+              // 置灰而不是隐藏：选择留着，切回横向分页时不用重新选一遍
+              disabled={prefs.layout !== 'paged'}
+            >
+              {m.label}
+            </button>
+          ))}
+        </div>
+        <p className="set-note">
+          {prefs.layout === 'paged'
+            ? PAGE_TURNS.find((m) => m.value === prefs.pageTurn)?.hint
+            : '仅在「横向分页」版面下生效。'}
         </p>
       </div>
 

@@ -458,7 +458,7 @@ export default function ReaderView() {
 
   const onReaderClick = useCallback(
     (e: React.MouseEvent<HTMLDivElement>) => {
-      if (prefs.pageMode !== 'paged') return
+      if (prefs.layout !== 'paged') return
       if (e.button !== 0 || e.defaultPrevented) return
 
       const t = e.target as HTMLElement
@@ -479,7 +479,7 @@ export default function ReaderView() {
       if (x > r.width * 0.7) root.scrollBy({ top: step, behavior: 'smooth' })
       else if (x < r.width * 0.3) root.scrollBy({ top: -step, behavior: 'smooth' })
     },
-    [prefs.pageMode],
+    [prefs.layout],
   )
 
   /**
@@ -692,7 +692,7 @@ export default function ReaderView() {
         )}
 
         <div
-          className={'reader-scroll' + (prefs.pageMode === 'paged' ? ' paged' : '')}
+          className={'reader-scroll' + (prefs.layout === 'paged' ? ' paged' : '')}
           ref={rootRef}
           onClick={onReaderClick}
         >

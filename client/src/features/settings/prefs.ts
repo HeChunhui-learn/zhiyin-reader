@@ -1,5 +1,5 @@
 /**
- * 阅读偏好（主题 / 字号 / 翻页模式 / 背景图）。
+ * 阅读偏好（主题 / 字号 / 阅读版面 / 翻页方式 / 背景图）。
  *
  * 纯 TS、无 React 依赖 —— 和 api/device.ts 一样直接读写 localStorage，
  * provider 只是套在外面的一层壳。
@@ -14,12 +14,16 @@
 const KEY = 'zhiyin.readerPrefs'
 
 export type ReaderTheme = 'light' | 'dark'
-export type PageMode = 'scroll' | 'paged'
+/** 阅读版面：纵向长滚动 / 按屏高切成页横向翻 */
+export type Layout = 'scroll' | 'paged'
+/** 翻页方式：左右平移（带过渡）/ 整屏跳转（无过渡）。只在 layout === 'paged' 时生效 */
+export type PageTurn = 'snap' | 'slide'
 
 export interface ReaderPrefs {
   theme: ReaderTheme
   fontSize: number
-  pageMode: PageMode
+  layout: Layout
+  pageTurn: PageTurn
   /** 背景图在 IndexedDB 里的记录键；null = 没设背景 */
   bgImageId: string | null
 }
@@ -42,15 +46,29 @@ export const DEFAULT_FONT_SIZE = 16
 export const DEFAULT_PREFS: ReaderPrefs = {
   theme: 'light',
   fontSize: DEFAULT_FONT_SIZE,
-  pageMode: 'scroll',
+  layout: 'scroll',
+  // 默认给带过渡的那档：新功能的观感直接可见，不用读者再进设置里翻一次
+  pageTurn: 'slide',
   bgImageId: null,
 }
 
 function readOne(raw: unknown): ReaderPrefs {
-  const o = (raw ?? {}) as Partial<ReaderPrefs>
+  // 用 Record 读而不是 Partial<ReaderPrefs>：旧版本的版面存在 `pageMode` 键上，
+  // 它已经不是新类型的字段了，用 Partial<ReaderPrefs> 根本读不到，迁移会断在这儿
+  const o = (raw ?? {}) as Record<string, unknown>
 
   const theme: ReaderTheme = o.theme === 'dark' ? 'dark' : 'light'
-  const pageMode: PageMode = o.pageMode === 'paged' ? 'paged' : 'scroll'
+
+  // 版面：优先认新键 layout；只有旧键 pageMode 时才把旧值搬过来。
+  // **必须显式迁移** —— 否则老用户升级后原来的"分页"选择会被静默吞掉、变回滚动
+  const layout: Layout =
+    o.layout === 'paged' || o.layout === 'scroll'
+      ? o.layout
+      : o.pageMode === 'paged'
+        ? 'paged'
+        : 'scroll'
+
+  const pageTurn: PageTurn = o.pageTurn === 'snap' ? 'snap' : 'slide'
 
   // 只认档位表里的值：手改出来的 37px 会让几何表按一个荒唐的比例缩放
   const fontSize =
@@ -60,7 +78,7 @@ function readOne(raw: unknown): ReaderPrefs {
 
   const bgImageId = typeof o.bgImageId === 'string' && o.bgImageId ? o.bgImageId : null
 
-  return { theme, fontSize, pageMode, bgImageId }
+  return { theme, fontSize, layout, pageTurn, bgImageId }
 }
 
 export function readPrefs(): ReaderPrefs {
