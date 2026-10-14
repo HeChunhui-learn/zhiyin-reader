@@ -50,8 +50,12 @@ export default defineConfig({
          * 本机 Chrome 是真实浏览器，对"浏览器真机测试"这个目的完全够用 ——
          * 反正是要验真实排版与滚动，不是验 Playwright 的打包产物。
          * 换一台机器若没装 Chrome，改成 `channel: 'msedge'`，或先跑通 install。
+         *
+         * **CI 里不能指定 channel**：GitHub 的 ubuntu runner 上既没有 Chrome 也没有 Edge，
+         * 指定了会直接 `Executable doesn't exist`。CI 走 `npx playwright install --with-deps chromium`
+         * 装 Playwright 自带的 chromium；本机照旧用已装的 Chrome（那条代理老路别改）。
          */
-        channel: 'chrome',
+        ...(process.env.CI ? {} : { channel: 'chrome' }),
         viewport: { width: 1440, height: 900 },
       },
     },

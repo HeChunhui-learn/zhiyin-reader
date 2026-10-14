@@ -1,0 +1,163 @@
+# 知音漫卷（zhiyin-reader）的持续集成配置。
+# 三件事分开跑（并行的三个 job），失败时一眼能看出是哪一层挂了：
+#   1. 静态检查 —— 类型错误与构建失败，最快，通常 1 分钟内出结果
+#   2. 单元测试 —— Vitest，纯函数与接口契约，不碰浏览器
+#   3. 端到端   —— Playwright 驱动真实 chromium，验真实排版/滚动/多上下文同步
+#
+# 为什么用 Node 22 而不是 20：
+#   server 依赖 better-sqlite3@12.11.1，它在 linux-x64 上只发了
+#   node-v127 / v137 / v141 / v147 四个预编译包 —— 对应 Node 22 / 24 / 25 / 26。
+#   **Node 20 没有预编译包**（ABI 115 不在其中），装上会回落 node-gyp 现场编译，
+#   在 runner 上要么很慢要么直接失败。Node 22 命中 node-v127，下载即用。
+#   换 Node 版本前先去 WiseLibs/better-sqlite3 的 release 页面确认有没有对应 ABI 的预编译包。
+name: CI
+
+on:
+  push:
+    # V1.* 是 .context 里约定的多角色迭代分支（V1.A / V1.B / V1.C / V1.D）
+    branches: [dev, main, 'V1.*']
+  pull_request:
+    branches: [dev, main]
+  # 允许在 Actions 页面手动点一次，方便演示或排查
+  workflow_dispatch:
+
+# 同一个分支连续推多次时，取消掉还在跑的旧一轮 —— 省 runner 分钟数，也让状态更干净
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+# 这几个 job 只读仓库，不需要写权限
+permissions:
+  contents: read
+
+env:
+  # 让 npm 在 CI 上别打进度条，日志干净好读
+  NPM_CONFIG_FUND: 'false'
+  NPM_CONFIG_AUDIT: 'false'
+
+jobs:
+  # ---------------------------------------------------------------------------
+  # 1. 静态检查：改完代码最先想知道的是"有没有类型错、能不能构建"
+  # ---------------------------------------------------------------------------
+  static:
+    name: 静态检查（typecheck + 构建）
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+          # 两个子项目各有一份 lockfile，都要纳入缓存键
+          cache-dependency-path: |
+            client/package-lock.json
+            server/package-lock.json
+
+      - name: 安装前端依赖
+        working-directory: client
+        run: npm ci
+
+      - name: 前端类型检查（tsc --noEmit）
+        working-directory: client
+        run: npx tsc --noEmit
+
+      - name: 前端构建（tsc -b && vite build）
+        working-directory: client
+        run: npm run build
+
+      - name: 安装服务端依赖
+        working-directory: server
+        run: npm ci
+
+      - name: 服务端类型检查（tsc --noEmit）
+        working-directory: server
+        run: npm run typecheck
+
+  # ---------------------------------------------------------------------------
+  # 2. 单元测试：两个子项目各一套 Vitest
+  #    服务端用例全部走 app.inject()，且每个用例文件用独立临时库
+  #    （server/test/setup.ts 里把 ZHIYIN_DB 指到 tmpdir），
+  #    不碰演示库 server/data/zhiyin.db，所以 CI 上不需要额外的建库步骤。
+  # ---------------------------------------------------------------------------
+  unit:
+    name: 单元测试（Vitest）
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: |
+            client/package-lock.json
+            server/package-lock.json
+
+      - name: 安装服务端依赖
+        working-directory: server
+        run: npm ci
+
+      - name: 服务端单元测试
+        working-directory: server
+        run: npm test
+
+      - name: 安装前端依赖
+        working-directory: client
+        run: npm ci
+
+      - name: 前端单元测试
+        working-directory: client
+        run: npm test
+
+  # ---------------------------------------------------------------------------
+  # 3. 端到端：补 docs/02 第 6.1 节明列的最大缺口「浏览器真机测试」
+  #    Playwright 自己拉起两个服务（见 client/playwright.config.ts 的 webServer）：
+  #      · 服务端 3000 —— 跑 server/e2e-server.mjs，用独立的 data-e2e 库并每轮重建
+  #      · 前端   5173 —— Vite dev server，/api 代理到 3000
+  #    所以这里不用手动起服务，也不要起 —— 端口被占反而会失败。
+  #
+  #    注意 CI 上**不能指定 channel: 'chrome'**（playwright.config.ts 里已按
+  #    环境变量 CI 条件化）：ubuntu runner 上没有 Chrome/Edge，
+  #    走下面那条 install 装 Playwright 自带的 chromium。
+  # ---------------------------------------------------------------------------
+  e2e:
+    name: 端到端（Playwright 真实浏览器）
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: |
+            client/package-lock.json
+            server/package-lock.json
+
+      - name: 安装依赖（前端 + 服务端）
+        run: |
+          npm --prefix client ci
+          npm --prefix server ci
+
+      # --with-deps 会一并装上 chromium 需要的系统库（中文字体等）。
+      # 少这一步用例会以 Executable doesn't exist 失败。
+      - name: 安装 chromium 及其系统依赖
+        working-directory: client
+        run: npx playwright install --with-deps chromium
+
+      - name: 跑端到端用例
+        working-directory: client
+        run: npx playwright test
+
+      # 失败才最需要看报告：截图、trace、以及 JSON 结果
+      - name: 上传测试报告（失败时也上传）
+        if: always()
+        uses: actions/upload-artifact@v5
+        with:
+          name: playwright-report
+          path: |
+            client/e2e-report/
+            client/test-results/
+          if-no-files-found: ignore
+          retention-days: 7
