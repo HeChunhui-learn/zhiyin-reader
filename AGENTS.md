@@ -144,9 +144,9 @@ V1.A 追加 1 张 T_Idempotency（复合主键 (user_id, idem_key)，防跨用�
 - **迭代第一轮 · 角色 A 已完成**（分支 `V1.A`）：A2 幂等键落库（新增 `T_Idempotency`）、A4 冲突列表刷新后能读回（`persistConflict` 从 `routes/sync.ts` 下沉到 `sync/service.ts`）。第二轮的 A1（真增量游标）与 A3（幂等覆盖单项接口）**尚未开始**。
 - **迭代 · 角色 B 已完成**（分支 `V1.B`）：书签拖动排序（`T_Bookmark.sort_order`，稠密整数 + 整表重排事务）、书签列表分页与排序（`GET /api/bookmarks/page`）、跨文档书签总览（`GET /api/bookmarks/overview`，「我的书签」已是真实页面）、书签默认名改为「章节标题 + 首句片段」（新增 `T_Bookmark.chapter_title`）。已知限制见 `docs/superpowers/specs/2026-10-11-role-B-bookmark-design.md`。
 - **迭代 · 角色 C 已完成**（分支 `V1.C`）：`better-sqlite3` 回退 `12.11.1`、C1 补全句子切分规则 R5/R6/R8/R10、C3 改语速不再重念当前句。
-- **迭代 · 角色 D 已完成**（分支 `V1.D`）：测试技能入库（`.agents/skills/` + `skills-lock.json`）+ **标准化测试套件落地（460 项断言 / 17 个测试文件 / 4447 行）**。
+- **迭代 · 角色 D 已完成**（分支 `V1.D`）：测试技能入库（`.agents/skills/` + `skills-lock.json`）+ **标准化测试套件落地（460 项断言 / 17 个测试文件）**。
 
-**八个轮次与四个迭代分支全部完成，460 项自动化断言全绿**（服务端集成 237 / 客户端单元 180 / 浏览器端到端 43，见 `docs/05-测试报告-V1.0.md`）。剩下的是**人力活，不是开发活**：在真机上核一遍（尤其窗口化滚动的观感）、把使用说明书打印出来、补 Kokoro 的实机验证。
+**八个轮次与四个迭代分支全部完成，三层自动化测试全绿**（**`dev` 上现为 462 项**：服务端集成 239 / 客户端单元 180 / 浏览器端到端 43；`V1.0-merge` 当时的快照是 460，见 ④「测试现状」的口径说明）。剩下的是**人力活，不是开发活**：在真机上核一遍（尤其窗口化滚动的观感）、把使用说明书打印出来、补 Kokoro 的实机验证。
 
 启动方式与脚本见 ①「怎么跑」。数据库在 `server/data/zhiyin.db`，JWT 密钥在同目录 `.jwt-secret`（首次启动自动生成）。
 
@@ -350,16 +350,18 @@ type Anchor = {
 
 ### 测试现状
 
-- **测试套件已经落地**（`V1.D` 的 D2）：**17 个测试文件 / 460 项断言 / 4447 行**，三层分工如下。
+- **测试套件已经落地**（`V1.D` 的 D2）：**17 个测试文件 / 462 项断言**，三层分工如下。
 
 | 层 | 位置 | 规模 | 环境 |
 |---|---|---|---|
-| 服务端接口与集成 | `server/test/` | 6 个文件，237 项 | Node + `app.inject()`；**串行跑**（`fileParallelism: false`，SQLite 的 WAL 在并发下会互相绊） |
+| 服务端接口与集成 | `server/test/` | 6 个文件，**239 项** | Node + `app.inject()`；**串行跑**（`fileParallelism: false`，SQLite 的 WAL 在并发下会互相绊） |
 | 客户端单元 | `client/test/` | 8 个文件，180 项 | **`environment: 'node'`，连 jsdom 都不用** —— 只测纯函数 |
-| 浏览器端到端 | `client/e2e/` | 3 个 spec，43 项 | Playwright 驱动**真实 Chrome** |
+| 浏览器端到端 | `client/e2e/` | 3 个 spec，43 项 | Playwright 驱动**真实浏览器**（见下） |
+
+> ⚠️ **`docs/05-测试报告-V1.0.md` 里的 460（服务端 237）是 `V1.0-merge` @ `b1e4df3` 当时的数**，那份报告作为历史记录仍然成立。之后 `1e57358`（上传上限提到 500MB）给 `server/test/documents-resources.test.ts` **加了 2 条**（断言 `BODY_LIMIT` 与 `MAX_FILE_BYTES` 同值、以及走 `MAX_PARAGRAPHS` 这条便宜路径跑通 413），该提交**只在 `dev` 上、不在 `V1.0-merge`**，所以 `dev` 现在是 **239 + 180 + 43 = 462**。报数时按分支注明。
 
 - **三层边界是有意划的**：需要浏览器 API 的（IndexedDB、IntersectionObserver、真实排版与滚动流畅度）一律推给 Playwright，**不在 Node 里打替身** —— 替身跑通了也不代表真机跑得通，反而会给出虚假的绿。理由写在 `client/vitest.config.ts`。
-- **端到端用本机 Chrome（`channel: 'chrome'`），不下 Playwright 自带的 chromium** —— npm 走 `127.0.0.1:7897` 代理，`npx playwright install chromium` 会在 90% 处报 `ERR_SSL_DECRYPTION_FAILED_OR_BAD_RECORD_MAC`。换台机器若没装 Chrome，改成 `channel: 'msedge'`。
+- **端到端本机用 Chrome、CI 用自带 chromium**：`client/playwright.config.ts` 里按环境变量条件化 —— 本机取 `channel: 'chrome'`（npm 走 `127.0.0.1:7897` 代理，`npx playwright install chromium` 会在 90% 处报 `ERR_SSL_DECRYPTION_FAILED_OR_BAD_RECORD_MAC`，所以不下自带包）；`CI` 下不指定 channel，走 `npx playwright install --with-deps chromium` 装的那份（ubuntu runner 上既没 Chrome 也没 Edge，硬指定会 `Executable doesn't exist`）。换台机器若没装 Chrome，改成 `channel: 'msedge'`。
 - **端到端用独立测试库**：`server/e2e-server.mjs` 每次启动前重建 `server/data-e2e/` 并灌种子，**绝不碰演示库** `server/data/zhiyin.db`。注意图片／原始文件／头像仍落在 `server/data/` 下（路径由 `db.ts` 的 `SERVER_ROOT` 决定，不走 `ZHIYIN_DB`）—— 这是个已知的隔离缺口，端到端用例实际不碰它们。
 - **提交前的三项验证**（`V1.B` 计划明确要求）：① `cd server && npm run typecheck` 无错误；② `cd client && npx tsc --noEmit` 无错误；③ `cd client && npm run build` 通过。**改了行为/接口还要附上实际跑过的证据**。
 - **已知未覆盖**（`docs/02` 第 6 节如实列出）：真实 Kokoro 音色与延迟、真实多设备局域网同步、30 分钟长时间压测、3000 段以上超大文档、无障碍。**不要把这些说成已验证。**
@@ -394,6 +396,18 @@ type Anchor = {
 | `V1.0-merge` | 独立 | R7 时期的集成分支快照 |
 
 **分支模型**：按角色/范围开分支（`V1.A` / `V1.B` / `V1.C` / `V1.D`），**不直接往 `main` 推**。合并前先读《迭代开发参考手册》第 7 章分支与提交规范、第 6.4 节两轮迭代的硬依赖图。开新分支前先 `git fetch` 对齐。
+
+**CI（GitHub Actions，`.github/workflows/ci.yml`）**：三个 job 并行，各自独立失败：
+
+| job | 内容 |
+|---|---|
+| `static` | 前端 `npx tsc --noEmit` + `npm run build`；服务端 `npm run typecheck` |
+| `unit` | 两端各跑一套 Vitest（`npm test`） |
+| `e2e` | `npx playwright install --with-deps chromium` 后跑 `npx playwright test`（Playwright 自己拉起 3000 与 5173，**不要手动起服务**） |
+
+- 触发：push 到 `dev` / `main` / `V1.*`，以及针对 `dev` / `main` 的 pull_request；另有 `workflow_dispatch` 可手动点。同一分支连推会自动取消上一轮。
+- **Node 固定 22**：`better-sqlite3@12.11.1` 在 linux-x64 上只发了 `node-v127 / v137 / v141 / v147` 四个预编译包（Node 22 / 24 / 25 / 26），**Node 20 的 ABI 115 不在其中**，装上会回落 `node-gyp` 现场编译。**换 Node 版本前先去 WiseLibs/better-sqlite3 的 release 页核对有没有对应 ABI 的预编译包。**
+- e2e 那段还尽力装了 `speech-dispatcher` + `espeak-ng`（`continue-on-error: true`）：无头 Linux 的 chromium 默认没有语音合成后端（`speechSynthesis` 对象在、`getVoices()` 恒空，一 `speak()` 就 `synthesis-failed`），装上它这条用例才能在 CI 上真的跑出播放态；装不上也不致命。**这类「运行环境没有能力」的情况要按降级行为断言，不要用 `test.skip` 盖掉，更不要打替身凑假绿。**
 
 **每个任务的闭环**（`V1.B` 已按此执行，10 个任务各自单独提交）：
 
