@@ -2,6 +2,7 @@ import { expect, test } from '@playwright/test'
 import {
   DEMO_ACCOUNT,
   collectConsoleErrors,
+  hasBrowserVoices,
   loginAsDemo,
   loginSubmit,
   openDemoBook,
@@ -324,11 +325,34 @@ test.describe('阅读界面（ReaderView）', () => {
     await expect(bar.locator('.pb-note').filter({ hasText: '已降级为浏览器发声' })).toBeVisible()
     await expect(bar.locator('.pb-note').filter({ hasText: '需安装离线音色包' })).toBeVisible()
 
+    /**
+     * 无头 Linux 的 chromium 上没有语音合成后端（除非装了 speech-dispatcher 一类），
+     * `speechSynthesis` 对象在、`getVoices()` 却是空数组，一 `speak()` 就
+     * `synthesis-failed` —— 跟读进不了播放态。
+     *
+     * 这不是产品缺陷，而是运行环境没有发声能力，所以这里**分成两条断言**，
+     * 两条都是真的在验行为，不拿替身凑一个假的绿：
+     *   · 有嗓音 —— 点了跟读应当进入播放态（按钮变「暂停」）
+     *   · 无嗓音 —— 应当按 CLAUDE.md「错误必须被前端捕获并显示成中文提示，
+     *     不允许白屏」的要求给出中文提示，且按钮回到「跟读」，界面不崩
+     * 后者正是无声环境下的**正确降级行为**，断言它比 skip 掉整条用例更有价值。
+     */
+    const canSpeak = await hasBrowserVoices(page)
+
     await bar.getByRole('button', { name: '跟读' }).click()
-    // 播放中按钮变成"暂停"
-    await expect(bar.getByRole('button', { name: '暂停' })).toBeVisible({ timeout: 10_000 })
-    await bar.getByRole('button', { name: '暂停' }).click()
-    await expect(bar.getByRole('button', { name: '跟读' })).toBeVisible()
+
+    if (canSpeak) {
+      // 播放中按钮变成"暂停"
+      await expect(bar.getByRole('button', { name: '暂停' })).toBeVisible({ timeout: 10_000 })
+      await bar.getByRole('button', { name: '暂停' }).click()
+      await expect(bar.getByRole('button', { name: '跟读' })).toBeVisible()
+    } else {
+      // 没有发声能力：应当看到中文失败提示，并停在「跟读」上，不能白屏
+      await expect(page.locator('.resume-error')).toBeVisible({ timeout: 10_000 })
+      await expect(bar.getByRole('button', { name: '跟读' })).toBeVisible()
+      // 正文仍在（没有因为朗读失败把界面搞白）
+      await expect(page.locator('.reader-content')).toBeVisible()
+    }
   })
 
   test('★ 书签面板：点「加当前位置」后列表里真的多一条（B 迭代 BookmarkPanel）', async ({ page }) => {

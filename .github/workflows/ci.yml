@@ -146,6 +146,17 @@ jobs:
         working-directory: client
         run: npx playwright install --with-deps chromium
 
+      # 无头 Linux 的 chromium 默认没有语音合成后端：speechSynthesis 对象在，
+      # 但 getVoices() 恒为空数组，一 speak() 就 synthesis-failed，
+      # 于是「跟读按钮进入播放态」那条用例只能跳过。装 speech-dispatcher + espeak-ng
+      # 给它一个真实后端，让这条用例在 CI 上也能真的跑。
+      # 装不上不致命 —— 用例自身会据实 test.skip，不会给假绿。
+      - name: 安装语音合成后端（尽力而为）
+        continue-on-error: true
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y speech-dispatcher espeak-ng
+
       - name: 跑端到端用例
         working-directory: client
         run: npx playwright test

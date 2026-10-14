@@ -46,6 +46,31 @@ export function collectConsoleErrors(page: Page): string[] {
   return errors
 }
 
+/**
+ * 当前浏览器有没有**真正可用**的语音合成嗓音。
+ *
+ * 为什么需要它：无头 Linux 的 chromium 上没有 speech-dispatcher（CI 上就是这种），
+ * `speechSynthesis` 这个对象**存在**、`BrowserTtsEngine.isSupported()` 也就报 true，
+ * 所以"浏览器原生"会正常出现在引擎列表里；但 `getVoices()` 返回空数组，
+ * 一旦 `speak()` 就以 `synthesis-failed` 失败 —— 跟读根本启动不了。
+ * 这不是产品缺陷，是运行环境没有发声能力，只能据实跳过，不能拿替身凑一个假的绿。
+ *
+ * Chrome 的 `getVoices()` 首次调用常常是空的、要等 `voiceschanged`，
+ * 所以这里轮询等一会儿（界面上 `whenBrowserVoicesReady` 也是同样的道理，最多等 800ms）。
+ */
+export async function hasBrowserVoices(page: Page, timeoutMs = 3_000): Promise<boolean> {
+  const deadline = Date.now() + timeoutMs
+  for (;;) {
+    const n = await page.evaluate(() => {
+      const s = (globalThis as { speechSynthesis?: SpeechSynthesis }).speechSynthesis
+      return s && typeof s.getVoices === 'function' ? s.getVoices().length : 0
+    })
+    if (n > 0) return true
+    if (Date.now() >= deadline) return false
+    await page.waitForTimeout(200)
+  }
+}
+
 /** 登录表单的提交按钮（页面上有两个「登录」：切换标签 + 提交按钮，必须分清） */
 export function loginSubmit(page: Page) {
   return page.locator('form.login-card .btn-primary.btn-block')
