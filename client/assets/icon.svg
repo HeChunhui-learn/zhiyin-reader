@@ -1,0 +1,54 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1024" height="1024" viewBox="0 0 1024 1024">
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="0.7" y2="1">
+      <stop offset="0" stop-color="#1b3f8f"/>
+      <stop offset="1" stop-color="#0f2a63"/>
+    </linearGradient>
+    <linearGradient id="card" x1="0" y1="0" x2="0.5" y2="1">
+      <stop offset="0" stop-color="#fffdf8"/>
+      <stop offset="0.55" stop-color="#f5f8fd"/>
+      <stop offset="1" stop-color="#e4edf9"/>
+    </linearGradient>
+    <linearGradient id="disc" x1="0.15" y1="0" x2="0.85" y2="1">
+      <stop offset="0" stop-color="#3064a3"/>
+      <stop offset="0.52" stop-color="#1a3e7b"/>
+      <stop offset="1" stop-color="#0d2345"/>
+    </linearGradient>
+    <linearGradient id="rock" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#ffffff"/>
+      <stop offset="0.7" stop-color="#f2f8ff"/>
+      <stop offset="1" stop-color="#dbe8f7"/>
+    </linearGradient>
+    <linearGradient id="wave" x1="0" y1="0" x2="1" y2="0">
+      <stop offset="0" stop-color="#f2f8ff"/>
+      <stop offset="1" stop-color="#8fb9e2"/>
+    </linearGradient>
+    <radialGradient id="sun" cx="0.35" cy="0.3" r="0.8">
+      <stop offset="0" stop-color="#e79a78"/>
+      <stop offset="1" stop-color="#b5472e"/>
+    </radialGradient>
+    <radialGradient id="glow" cx="0.28" cy="0.18" r="0.75">
+      <stop offset="0" stop-color="#ffffff" stop-opacity="0.16"/>
+      <stop offset="1" stop-color="#ffffff" stop-opacity="0"/>
+    </radialGradient>
+    <clipPath id="discClip">
+      <circle cx="24" cy="24" r="16.2"/>
+    </clipPath>
+  </defs>
+<rect width="1024" height="1024" fill="url(#bg)"/><g transform="translate(132 132) scale(15.833333333333334)">
+  <rect width="48" height="48" rx="12.5" fill="url(#card)"/>
+  <rect x="0.65" y="0.65" width="46.7" height="46.7" rx="12.1" fill="none" stroke="#1d3f8f" stroke-opacity="0.09" stroke-width="1.1"/>
+
+  <circle cx="24" cy="24" r="16.2" fill="url(#disc)"/>
+  <circle cx="24" cy="24" r="15.2" fill="none" stroke="#ffffff" stroke-opacity="0.13" stroke-width="0.9"/>
+
+  <g clip-path="url(#discClip)">
+    <circle cx="24" cy="24" r="16.2" fill="url(#glow)"/>
+    <circle cx="31.4" cy="14.9" r="3.4" fill="url(#sun)" opacity="0.95"/>
+    <path d="M6.5 30.8 L14 22.6 L19.6 28.4 L24.2 21.2 L30 27.4 L33.8 23.2 L41.5 30.8 Z" fill="#ffffff" opacity="0.22"/>
+    <path d="M8.2 33.7 L18.2 21.4 L24.2 28.3 L29.6 22.7 L39.8 33.7 Z" fill="url(#rock)"/>
+    <path d="M24.2 28.3 L29.6 22.7 L39.8 33.7 L24.2 33.7 Z" fill="#d7e5f5" opacity="0.72"/>
+    <path d="M10.4 36.5 q3.1 -1.9 6.2 0 t6.2 0 t6.2 0" fill="none" stroke="url(#wave)" stroke-width="1.5" stroke-linecap="round" opacity="0.94"/>
+    <path d="M13.2 40.4 q2.7 -1.6 5.4 0 t5.4 0 t5.4 0" fill="none" stroke="#9dc2e7" stroke-width="1.1" stroke-linecap="round" opacity="0.42"/>
+  </g>
+</g></svg>

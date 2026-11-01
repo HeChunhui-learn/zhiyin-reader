@@ -1,6 +1,7 @@
 import type { Book, Paragraph } from '../models/types'
 import { authStore, type TokenPair } from './authStore'
 import { getDeviceId } from './device'
+import { appVersionHeader } from './appVersion'
 
 /**
  * 接口客户端。统一走 /api，开发时由 Vite 代理到 http://localhost:3000。
@@ -9,7 +10,60 @@ import { getDeviceId } from './device'
  * 访问令牌过期（401 AUTH_TOKEN_EXPIRED）时自动刷新一次并重放原请求。
  */
 
-const BASE = '/api'
+/**
+ * 接口基址。
+ *
+ * 浏览器里默认 `/api`，由 Vite 代理或 nginx 同源转发；打包进 Capacitor 时
+ * 由构建参数 `VITE_API_BASE=http://123.56.172.230/api` 写死一个默认值。
+ * 原生壳里没有"同源"这回事，WebView 的 `/api` 会打到 localhost 自己身上。
+ *
+ * 运行时还可以在登录页改（存 localStorage），换服务器 / 换局域网地址不必重新打包。
+ */
+const ENV_API_BASE = ((import.meta.env.VITE_API_BASE as string | undefined) ?? '')
+  .trim()
+  .replace(/\/+$/, '')
+const API_BASE_STORAGE_KEY = 'zhiyin.apiBase'
+
+export const DEFAULT_API_BASE = ENV_API_BASE || '/api'
+
+/**
+ * 把用户输入整理成可用的基址：补协议头、去掉末尾斜杠、补 `/api`。
+ * 输入 `192.168.1.5:3000` 会得到 `http://192.168.1.5:3000/api`。
+ */
+export function normalizeApiBase(input: string): string {
+  let v = input.trim().replace(/\/+$/, '')
+  if (!v) return ''
+  if (!/^https?:\/\//i.test(v)) v = `http://${v}`
+  if (!/\/api$/i.test(v)) v = `${v}/api`
+  return v
+}
+
+export function getApiBase(): string {
+  try {
+    const saved = localStorage.getItem(API_BASE_STORAGE_KEY)
+    if (saved?.trim()) return saved.trim().replace(/\/+$/, '')
+  } catch {
+    /* localStorage 不可用（隐私模式等）就走默认 */
+  }
+  return DEFAULT_API_BASE
+}
+
+/** 传空值表示恢复默认。返回最终生效的基址 */
+export function setApiBase(input: string | null): string {
+  const normalized = input ? normalizeApiBase(input) : ''
+  try {
+    if (normalized) localStorage.setItem(API_BASE_STORAGE_KEY, normalized)
+    else localStorage.removeItem(API_BASE_STORAGE_KEY)
+  } catch {
+    /* 存不进去也不耽误本次会话 */
+  }
+  return normalized || DEFAULT_API_BASE
+}
+
+/** 拼出完整接口地址。所有请求（包括 keepalive 的裸 fetch）都必须走这里 */
+export function apiUrl(path: string): string {
+  return getApiBase() + path
+}
 
 /** 单个请求的超时（毫秒）。超时按网络错误处理，界面给中文提示 */
 const REQUEST_TIMEOUT_MS = 15000
@@ -35,6 +89,16 @@ interface ErrorEnvelope {
   message?: string
   details?: Record<string, unknown>
   requestId?: string
+}
+
+/**
+ * 服务端判定"必须更新"时抛出的 426。更新弹窗监听这个事件，
+ * 不用在每个页面里各写一次错误分支。
+ */
+function notifyUpdateRequired(env: ErrorEnvelope): void {
+  if (typeof window === 'undefined') return
+  if (env.code !== 'APP_UPDATE_REQUIRED') return
+  window.dispatchEvent(new CustomEvent('zhiyin:update-required', { detail: env }))
 }
 
 export class ApiError extends Error {
@@ -68,9 +132,15 @@ async function rawRequest<T>(
   const ctrl = new AbortController()
   const timer = setTimeout(() => ctrl.abort(), timeoutMs)
 
+  // 版本头由这里统一补：调用方（包括 refreshOnce）不必逐个记得
+  const headers: Record<string, string> = {
+    ...((init?.headers as Record<string, string>) ?? {}),
+    ...appVersionHeader(),
+  }
+
   let res: Response
   try {
-    res = await fetch(BASE + path, { ...init, signal: ctrl.signal })
+    res = await fetch(apiUrl(path), { ...init, headers, signal: ctrl.signal })
   } catch (e) {
     if ((e as Error)?.name === 'AbortError') {
       throw new ApiError('TIMEOUT', '请求超时，请检查网络后重试。', 0)
@@ -91,6 +161,7 @@ async function rawRequest<T>(
     } catch {
       /* 响应体不是 JSON */
     }
+    if (res.status === 426) notifyUpdateRequired(env)
     throw new ApiError(
       env.code ?? `HTTP_${res.status}`,
       env.message ?? '请求失败，请稍后重试。',
@@ -176,6 +247,7 @@ async function requestBinary(
   const token = authStore.access
   const headers: Record<string, string> = {
     ...((init.headers as Record<string, string>) ?? {}),
+    ...appVersionHeader(),
   }
   if (token) headers.Authorization = `Bearer ${token}`
 
@@ -184,7 +256,7 @@ async function requestBinary(
 
   let res: Response
   try {
-    res = await fetch(BASE + path, { ...init, headers, signal: ctrl.signal })
+    res = await fetch(apiUrl(path), { ...init, headers, signal: ctrl.signal })
   } catch (e) {
     if ((e as Error)?.name === 'AbortError') {
       throw new ApiError('TIMEOUT', '请求超时，请检查网络后重试。', 0)
@@ -202,6 +274,7 @@ async function requestBinary(
     } catch {
       /* 不是 JSON，用默认文案 */
     }
+    if (res.status === 426) notifyUpdateRequired(env)
     const err = new ApiError(
       env.code ?? `HTTP_${res.status}`,
       env.message ?? '请求失败，请稍后重试。',

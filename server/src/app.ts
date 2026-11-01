@@ -12,6 +12,7 @@ import bookmarkRoutes from './routes/bookmarks'
 import readingTimeRoutes from './routes/readingTime'
 import syncRoutes from './routes/sync'
 import healthRoutes from './routes/health'
+import appVersionRoutes, { getAppVersionEnv } from './routes/appVersion'
 
 /**
  * 单次请求体的上限。默认 1MB 对导入文档来说完全不够。
@@ -57,6 +58,44 @@ export async function buildApp(opts: BuildAppOptions = {}): Promise<FastifyInsta
     const id = `req_${randomUUID().replace(/-/g, '').slice(0, 12)}`
     ;(req as unknown as { requestId: string }).requestId = id
     reply.header('X-Request-Id', id)
+  })
+
+  /**
+   * App 强制更新门槛。
+   *
+   * 只拦 Capacitor 壳里的请求（Origin 是 http://localhost / https://localhost）。
+   * 浏览器访问的 Origin 是站点域名或 localhost:5173，不受影响 —— 网页版没有
+   * "装哪个 APK" 的概念，不能把它一起挡掉。
+   *
+   * 旧版客户端（1.0.0 / 1.1.0）不发送 X-App-Version-Code，会在这里拿到 426。
+   * 新客户端在 rawRequest 里统一带上该头。OPTIONS 必须放行，否则 CORS 预检
+   * 都过不去。版本接口自身也放行，否则旧版连"该更新"都查不到。
+   *
+   * MIN_APP_VERSION_CODE 设成 0 可关闭此门槛（维护时用）。
+   */
+  app.addHook('onRequest', async (req, reply) => {
+    if (req.method === 'OPTIONS') return
+
+    const origin = req.headers.origin
+    if (origin !== 'http://localhost' && origin !== 'https://localhost') return
+
+    const path = (req.url ?? '').split('?')[0]
+    if (path === '/api/app/version' || path === '/api/health') return
+
+    const { versionCode, versionName, apkUrl, minVersionCode } = getAppVersionEnv()
+    if (!Number.isFinite(minVersionCode) || minVersionCode <= 0) return
+
+    const raw = req.headers['x-app-version-code']
+    const clientCode = Number(Array.isArray(raw) ? raw[0] : raw)
+    if (Number.isFinite(clientCode) && clientCode >= minVersionCode) return
+
+    const requestId = (req as unknown as { requestId?: string }).requestId ?? ''
+    return reply.code(426).send({
+      code: 'APP_UPDATE_REQUIRED',
+      message: process.env.APP_UPDATE_MESSAGE ?? '当前版本过低，请更新客户端后继续使用。',
+      details: { versionCode, versionName, minVersionCode, apkUrl },
+      requestId,
+    })
   })
 
   if (logRequests) {
@@ -121,6 +160,7 @@ export async function buildApp(opts: BuildAppOptions = {}): Promise<FastifyInsta
   })
 
   await app.register(healthRoutes)
+  await app.register(appVersionRoutes)
   await app.register(authRoutes)
   await app.register(documentRoutes)
   await app.register(resourceRoutes)

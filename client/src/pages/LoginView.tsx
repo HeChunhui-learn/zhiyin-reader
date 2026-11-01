@@ -1,9 +1,9 @@
 import { useState } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { ApiError } from '../api/client'
+import { ApiError, DEFAULT_API_BASE, getApiBase, setApiBase } from '../api/client'
 import { useSession } from '../state/session'
 import AppLogo from '../features/brand/AppLogo'
-import InkLandscape from '../features/brand/InkLandscape'
+import guideMountain from '../assets/guide-mountain.jpg'
 
 type Tab = 'login' | 'register'
 
@@ -15,8 +15,24 @@ export default function LoginView() {
   const [remember, setRemember] = useState(false)
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState('')
+  const [serverOpen, setServerOpen] = useState(false)
+  const [serverDraft, setServerDraft] = useState(getApiBase())
+  const [serverMsg, setServerMsg] = useState('')
   const { login, register } = useSession()
   const navigate = useNavigate()
+
+  /** 原生壳里换服务器地址用。浏览器端默认同源，一般用不到，但改错了也能改回来 */
+  function saveServer() {
+    const next = setApiBase(serverDraft)
+    setServerDraft(next)
+    setServerMsg(`已保存：${next}`)
+  }
+
+  function resetServer() {
+    setApiBase(null)
+    setServerDraft(DEFAULT_API_BASE)
+    setServerMsg(`已恢复默认：${DEFAULT_API_BASE}`)
+  }
 
   /** 把服务端的错误码翻成更好懂的提示（密码错、锁定、重复注册等） */
   function friendly(e: unknown): string {
@@ -85,7 +101,10 @@ export default function LoginView() {
         <p className="login-brand-slogan">高山流水遇知音</p>
         <p className="login-brand-slogan-note">写意山水 · 与君共读</p>
 
-        <InkLandscape width={380} />
+        <figure className="login-figure">
+          <img src={guideMountain} alt="云雾中的群山" />
+          <figcaption>高山仰止 · 流水知音</figcaption>
+        </figure>
       </div>
 
       <div className="login-panel">
@@ -176,6 +195,39 @@ export default function LoginView() {
             <br />
             也可以自行注册，账号填手机号或邮箱、密码至少 8 位。
           </p>
+
+          <div className="login-server">
+            <button
+              type="button"
+              className="login-server-toggle"
+              onClick={() => { setServerOpen((v) => !v); setServerMsg('') }}
+            >
+              服务器地址：<span>{getApiBase()}</span>
+              <i>{serverOpen ? '收起' : '修改'}</i>
+            </button>
+
+            {serverOpen && (
+              <div className="login-server-box">
+                <label className="field">
+                  <span className="field-label">API 基址（留空恢复默认）</span>
+                  <input
+                    className="input"
+                    value={serverDraft}
+                    placeholder={DEFAULT_API_BASE}
+                    onChange={(e) => { setServerDraft(e.target.value); setServerMsg('') }}
+                    autoCapitalize="off"
+                    autoCorrect="off"
+                    spellCheck={false}
+                  />
+                </label>
+                <div className="login-server-actions">
+                  <button type="button" className="btn" onClick={saveServer}>保存</button>
+                  <button type="button" className="btn btn-ghost" onClick={resetServer}>恢复默认</button>
+                </div>
+                {serverMsg && <p className="login-server-msg">{serverMsg}</p>}
+              </div>
+            )}
+          </div>
         </form>
       </div>
     </div>

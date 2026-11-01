@@ -1,5 +1,13 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
-import { ApiError, api, type Anchor, type ConflictEnvelope, type ProgressItem } from '../../api/client'
+import {
+  ApiError,
+  api,
+  apiUrl,
+  type Anchor,
+  type ConflictEnvelope,
+  type ProgressItem,
+} from '../../api/client'
+import { appVersionHeader } from '../../api/appVersion'
 import { authStore } from '../../api/authStore'
 import { getDeviceId } from '../../api/device'
 import { compareAnchor } from './anchor'
@@ -171,11 +179,12 @@ export function useProgress(docId: string, enabled: boolean): ProgressApi {
     })
 
     try {
-      void fetch(`/api/documents/${docId}/progress`, {
+      void fetch(apiUrl(`/documents/${docId}/progress`), {
         method: 'PUT',
         headers: {
           'Content-Type': 'application/json',
           ...(authStore.access ? { Authorization: `Bearer ${authStore.access}` } : {}),
+          ...appVersionHeader(),
         },
         body,
         keepalive: true,

@@ -4,16 +4,17 @@ import { ApiError, api, type BookmarkDto } from '../api/client'
 import { parseFile } from '../features/parse'
 import { cachePut } from '../features/render/imageCache'
 import UserAvatar from '../features/profile/UserAvatar'
+import LineIcon, { type LineIconName } from '../features/brand/LineIcon'
 import { useSession } from '../state/session'
 
 type NavKey = 'all' | 'recent' | 'favorite' | 'bookmarks' | 'offline'
 
-const NAV: { key: NavKey; label: string; category: string }[] = [
-  { key: 'all', label: '全部书籍', category: 'all' },
-  { key: 'recent', label: '最近阅读', category: 'recent' },
-  { key: 'favorite', label: '我的收藏', category: 'favorite' },
-  { key: 'bookmarks', label: '我的书签', category: 'bookmarked' },
-  { key: 'offline', label: '离线文档', category: 'offline' },
+const NAV: { key: NavKey; label: string; category: string; icon: LineIconName }[] = [
+  { key: 'all', label: '全部书籍', category: 'all', icon: 'shelf' },
+  { key: 'recent', label: '最近阅读', category: 'recent', icon: 'clock' },
+  { key: 'favorite', label: '我的收藏', category: 'favorite', icon: 'star' },
+  { key: 'bookmarks', label: '我的书签', category: 'bookmarked', icon: 'bookmark' },
+  { key: 'offline', label: '离线文档', category: 'offline', icon: 'cloud' },
 ]
 
 type ImportStage =
@@ -23,12 +24,24 @@ type ImportStage =
   | { kind: 'done'; fileName: string; summary: string; docId: string }
   | { kind: 'error'; fileName: string; message: string; duplicateDocId?: string }
 
-const COVER_COLORS = ['#3B6EA5', '#8A6F4E', '#5B7C5A', '#7C5CBF', '#3E8E6E', '#A2555B']
-
-function coverColorFor(docId: string): string {
-  let h = 0
-  for (let i = 0; i < docId.length; i++) h = (h * 31 + docId.charCodeAt(i)) >>> 0
-  return COVER_COLORS[h % COVER_COLORS.length]
+/**
+ * 书封底色按 docId 稳定取一套（0–5）。
+ *
+ * 颜色本身写在 app.css 的 `.book-cover[data-cover="n"]` 里，这里只负责"同一本书
+ * 每次刷新都是同一个封面"。用 data 属性而不是内联 background，是为了让渐变色、
+ * 纹理和深色主题都能在 CSS 里统一维护。
+ */
+function coverIndexFor(docId: string, title: string): number {
+  // FNV-1a，种子带上书名：
+  //   · 原先的 h*31 散不开 —— 实际书库里 8 本书只落到 2 号和 4 号两套颜色；
+  //   · 只用 docId 时低位仍偏，改用 32 位值整体缩放，再去掉书名相同的撞色。
+  const seed = `${docId}|${title}`
+  let h = 0x811c9dc5
+  for (let i = 0; i < seed.length; i++) {
+    h ^= seed.charCodeAt(i)
+    h = Math.imul(h, 0x01000193) >>> 0
+  }
+  return Math.floor((h / 0x100000000) * 6)
 }
 
 /**
@@ -474,12 +487,14 @@ export default function LibraryView() {
               className={'side-item' + (nav === n.key ? ' active' : '')}
               onClick={() => setNav(n.key)}
             >
-              {n.label}
+              <LineIcon name={n.icon} size={17} />
+              <span>{n.label}</span>
             </button>
           ))}
           {/* 阅读时长是独立页面，不是书架的一个分类，所以不放进 NAV 里 */}
           <button className="side-item side-item-link" onClick={() => navigate('/stats')}>
-            阅读时长
+            <LineIcon name="chart" size={17} />
+            <span>阅读时长</span>
           </button>
           <div className="sync-badge sync-ok">已同步</div>
         </aside>
@@ -809,7 +824,11 @@ export default function LibraryView() {
                     if (pendingDelete !== b.docId) navigate(`/read/${b.docId}`)
                   }}
                 >
-                  <div className="book-cover" style={{ background: coverColorFor(b.docId) }}>
+                  <div className="book-cover" data-cover={coverIndexFor(b.docId, b.title)}>
+                    {/* 首字做淡墨底纹；aria-hidden 免得读屏把书名念两遍 */}
+                    <b className="book-cover-mark" aria-hidden="true">
+                      {b.title.trim().charAt(0) || '书'}
+                    </b>
                     <span>{b.title}</span>
 
                     {/* 收藏入口所有分类下都给：它只改"这本收没收藏"，

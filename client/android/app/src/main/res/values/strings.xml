@@ -1,0 +1,7 @@
+<?xml version='1.0' encoding='utf-8'?>
+<resources>
+    <string name="app_name">知音漫卷</string>
+    <string name="title_activity_main">知音漫卷</string>
+    <string name="package_name">com.zhiyin.reader</string>
+    <string name="custom_url_scheme">com.zhiyin.reader</string>
+</resources>

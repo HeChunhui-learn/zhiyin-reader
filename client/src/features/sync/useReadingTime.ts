@@ -1,5 +1,6 @@
 import { useEffect, useRef } from 'react'
-import { api } from '../../api/client'
+import { api, apiUrl } from '../../api/client'
+import { appVersionHeader } from '../../api/appVersion'
 import { authStore } from '../../api/authStore'
 import { getDeviceId } from '../../api/device'
 import { clearPending, enqueuePending, listPending } from './pendingQueue'
@@ -83,11 +84,12 @@ export function useReadingTime(docId: string, enabled: boolean): void {
       if (keepalive) {
         // 页面正在卸载，普通 fetch 会被掐断
         try {
-          void fetch(`/api/documents/${docId}/reading-time`, {
+          void fetch(apiUrl(`/documents/${docId}/reading-time`), {
             method: 'POST',
             headers: {
               'Content-Type': 'application/json',
               ...(authStore.access ? { Authorization: `Bearer ${authStore.access}` } : {}),
+              ...appVersionHeader(),
             },
             body: JSON.stringify(body),
             keepalive: true,
