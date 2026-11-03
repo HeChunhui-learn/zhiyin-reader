@@ -11,7 +11,12 @@ import { appVersionHeader } from '../../api/appVersion'
 import { authStore } from '../../api/authStore'
 import { getDeviceId } from '../../api/device'
 import { compareAnchor } from './anchor'
-import { enqueuePending, listPending, clearPending } from './pendingQueue'
+import {
+  enqueuePending,
+  listPending,
+  clearPending,
+  pickSyncedProgress,
+} from './pendingQueue'
 
 /**
  * 阅读进度的上报与恢复（契约 §6）。
@@ -98,20 +103,45 @@ export function useProgress(docId: string, enabled: boolean): ProgressApi {
     }
   }, [docId, deviceId, enabled])
 
+  /**
+   * 上报成功后清掉已经补上的旧队列行。
+   *
+   * 不清的话，一次离线失败就会让「待同步 N 条」一直挂着 ——
+   * 后续的防抖上报明明已经成功，徽标却要等到手动点「一键同步」才消失。
+   * 只清不晚于这次成功时间的行，请求飞行期间新排进来的那条不能误删。
+   */
+  const clearSynced = useCallback(
+    async (updatedAt: string) => {
+      try {
+        const done = pickSyncedProgress(
+          await listPending(authStore.userId, docId),
+          docId,
+          updatedAt,
+        )
+        if (done.length > 0) await clearPending(done.map((r) => r.id))
+      } catch {
+        /* 清队列失败不影响上报本身 */
+      }
+    },
+    [docId],
+  )
+
   /* ---- 真正发出去 ---- */
   const send = useCallback(
     async (anchor: Anchor): Promise<void> => {
+      const updatedAt = new Date().toISOString()
       try {
         const r = await api.putProgress(docId, {
           deviceId,
           anchor,
           lastSentenceIndex: anchor.sentenceIndex,
-          updatedAt: new Date().toISOString(),
+          updatedAt,
           baseVersion: versionRef.current,
         })
         versionRef.current = r.version
         setVersion(r.version)
         setError('')
+        void clearSynced(updatedAt)
       } catch (e) {
         if (e instanceof ApiError && e.code === 'SYNC_VERSION_CONFLICT') {
           // 冲突由服务端按"不回退保护"裁决，这里只把新版本号同步过来，
@@ -130,13 +160,13 @@ export function useProgress(docId: string, enabled: boolean): ProgressApi {
           docId,
           anchor,
           lastSentenceIndex: anchor.sentenceIndex,
-          updatedAt: new Date().toISOString(),
+          updatedAt,
           baseVersion: versionRef.current,
-        })
+        }, authStore.userId)
         setError(e instanceof ApiError ? e.message : '进度上报失败，已记入待同步队列')
       }
     },
-    [docId, deviceId],
+    [docId, deviceId, clearSynced],
   )
 
   /* ---- 防抖上报 ---- */
@@ -189,10 +219,10 @@ export function useProgress(docId: string, enabled: boolean): ProgressApi {
         body,
         keepalive: true,
       }).catch(() => {
-        void enqueuePending(docId, 'progress', JSON.parse(body))
+        void enqueuePending(docId, 'progress', JSON.parse(body), authStore.userId)
       })
     } catch {
-      void enqueuePending(docId, 'progress', JSON.parse(body))
+      void enqueuePending(docId, 'progress', JSON.parse(body), authStore.userId)
     }
   }, [docId, deviceId])
 
@@ -213,7 +243,7 @@ export function useProgress(docId: string, enabled: boolean): ProgressApi {
 
 /** 把离线队列里的进度变更取出，供批量同步使用 */
 export async function takePendingProgress(docId: string) {
-  const all = await listPending(docId)
+  const all = await listPending(authStore.userId, docId)
   const progress = all.filter((p) => p.kind === 'progress')
   return { progress, ids: progress.map((p) => p.id) }
 }

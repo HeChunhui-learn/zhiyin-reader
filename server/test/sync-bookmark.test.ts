@@ -1141,3 +1141,113 @@ describe('B 迭代 书签排序、分页与跨文档总览（契约 §7.5 / §7.
     expect(r.json().total).toBe(0)
   })
 })
+
+/* ==================================== 批量同步的文档归属与字段完整性 */
+
+describe('批量同步的文档归属与字段完整性', () => {
+  it('★ 批量同步不会把书签建到别人的文档上', async () => {
+    const { s: owner, docId } = await setupReader()
+    const other = await registerAndLogin(app)
+    const id = uniq()
+
+    const r = await app.inject({
+      method: 'POST', url: '/api/sync', headers: auth(other),
+      payload: {
+        deviceId: 'dev_other',
+        bookmarks: {
+          created: [{
+            bookmarkId: id, docId, anchor: anchorOf(1), name: '越权',
+            updatedAt: new Date().toISOString(),
+          }],
+        },
+      },
+    })
+
+    expect(r.statusCode).toBe(200)
+    expect(r.json().applied.bookmarks.created).toBe(0)
+    expect(r.json().applied.bookmarks.skipped).toContain(id)
+
+    const list = await app.inject({ method: 'GET', url: `/api/bookmarks?docId=${docId}`, headers: auth(owner) })
+    expect(list.json().items.some((i: { bookmarkId: string }) => i.bookmarkId === id)).toBe(false)
+  })
+
+  it('★ 文档已删除时批量同步跳过该书签，不返回 500', async () => {
+    const { s, docId } = await setupReader()
+    const del = await app.inject({ method: 'DELETE', url: `/api/documents/${docId}`, headers: auth(s) })
+    expect(del.statusCode).toBe(204)
+
+    const id = uniq()
+    const r = await app.inject({
+      method: 'POST', url: '/api/sync', headers: auth(s),
+      payload: {
+        deviceId: 'dev_a',
+        bookmarks: {
+          created: [{
+            bookmarkId: id, docId, anchor: anchorOf(1), name: '文档已删',
+            updatedAt: new Date().toISOString(),
+          }],
+        },
+      },
+    })
+
+    expect(r.statusCode).toBe(200)
+    expect(r.json().applied.bookmarks.skipped).toContain(id)
+  })
+
+  it('★ 批量同步保留 chapterTitle', async () => {
+    const { s, docId } = await setupReader()
+    const id = uniq()
+
+    const r = await app.inject({
+      method: 'POST', url: '/api/sync', headers: auth(s),
+      payload: {
+        deviceId: 'dev_a',
+        bookmarks: {
+          created: [{
+            bookmarkId: id, docId, anchor: anchorOf(1), name: '章节书签',
+            chapterTitle: '第三章', updatedAt: new Date().toISOString(),
+          }],
+        },
+      },
+    })
+    expect(r.statusCode).toBe(200)
+
+    const list = await app.inject({
+      method: 'GET', url: `/api/bookmarks/page?docId=${docId}&page=1&pageSize=20`, headers: auth(s),
+    })
+    const item = list.json().items.find((i: { bookmarkId: string }) => i.bookmarkId === id)
+    expect(item.chapterTitle).toBe('第三章')
+  })
+})
+
+describe('批量同步的增量开关', () => {
+  it('includeChanges=false 时不回传服务端增量（一键同步只需补报与冲突）', async () => {
+    const { s, docId } = await setupReader()
+    await app.inject({
+      method: 'POST', url: '/api/bookmarks', headers: auth(s),
+      payload: {
+        bookmarkId: uniq(), docId, anchor: anchorOf(1), name: '已有书签',
+        updatedAt: new Date().toISOString(),
+      },
+    })
+
+    const r = await app.inject({
+      method: 'POST', url: '/api/sync', headers: auth(s),
+      payload: {
+        deviceId: 'dev_a',
+        since: null,
+        includeChanges: false,
+        progress: {
+          docId, anchor: anchorOf(1), lastSentenceIndex: 0,
+          updatedAt: new Date().toISOString(), baseVersion: 0,
+        },
+      },
+    })
+
+    expect(r.statusCode).toBe(200)
+    expect(r.json().changes.progress).toBeNull()
+    expect(r.json().changes.bookmarks.created).toEqual([])
+    expect(r.json().changes.bookmarks.updated).toEqual([])
+    expect(r.json().changes.bookmarks.deleted).toEqual([])
+  })
+})

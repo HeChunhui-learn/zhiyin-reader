@@ -450,6 +450,8 @@ export interface ConflictEnvelope {
 export interface SyncRequest {
   deviceId: string
   since: string | null
+  /** 一键同步不消费 changes；服务端据此跳过全量增量扫描 */
+  includeChanges?: boolean
   progress?: {
     docId: string
     anchor: Anchor
@@ -474,7 +476,13 @@ export interface SyncResponse {
   serverTime: string
   applied: {
     progress: { version: number; outcome: string } | null
-    bookmarks: { created: number; updated: number; deleted: number }
+    bookmarks: {
+      created: number
+      updated: number
+      deleted: number
+      /** 文档已删除 / 不属于当前读者 / 缺 docId 的条目，客户端据此清队列 */
+      skipped?: string[]
+    }
   }
   conflicts: ConflictEnvelope[]
   changes: {

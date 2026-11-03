@@ -60,6 +60,14 @@ export interface BookmarkPayload {
   name: string | null
   updatedAt: string
   deletedAt?: string | null
+  /**
+   * 书签所属章节标题（B4）。
+   *
+   * 批量同步的 created 条目也要带它 —— 只在 POST /api/bookmarks 里写的话，
+   * 离线创建、后来一键同步的书签会丢失章节，总览里那一列是空的。
+   * undefined 表示"这次没提供"，更新时不要用 null 覆盖库里已有的值。
+   */
+  chapterTitle?: string | null
 }
 
 export interface BookmarkServerState {

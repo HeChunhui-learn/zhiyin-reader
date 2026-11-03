@@ -148,6 +148,7 @@ zhiyin-reader/
 - 播放器用 `document.createElement('audio')`，不要用 `new Audio()`。
 - 游标由真实播放事件驱动，**不要引入定时器**。
 - 软删除必须刷新 `updated_at`。
+- 离线待同步队列**按读者隔离**；批量同步的 `created` 书签必须校验 `docId` 的属主与存在性。
 
 ### 7.3 不做的事
 

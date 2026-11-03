@@ -31,6 +31,14 @@ export interface TtsProvider {
   readonly label: string
   listVoices(): Promise<VoiceInfo[]>
   synthesize(text: string, voice: string, rate: number, format: string): Promise<SynthResult>
+  /**
+   * 引擎实际能产出的格式；返回 null 表示不支持。
+   *
+   * 缺省表示"请求什么就产什么"（本地 OpenAI 兼容上游）。
+   * Edge 这类只支持有限格式的引擎必须实现它，否则缓存扩展名、Content-Type
+   * 与实际字节会对不上（审查发现：MP3 字节被写进 .wav 并按 audio/wav 返回）。
+   */
+  resolveFormat?(format: string): { format: string; contentType: string } | null
 }
 
 const BASE = (process.env.TTS_BASE_URL ?? 'http://127.0.0.1:8880/v1').replace(/\/+$/, '')

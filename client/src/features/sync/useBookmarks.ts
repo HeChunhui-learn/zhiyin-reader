@@ -6,7 +6,13 @@ import {
   type BookmarkDto,
   type ConflictEnvelope,
 } from '../../api/client'
-import { enqueuePending } from './pendingQueue'
+import { authStore } from '../../api/authStore'
+import {
+  enqueuePending,
+  listPending,
+  clearPending,
+  pickSyncedBookmark,
+} from './pendingQueue'
 
 /**
  * 书签的读写（契约 §7 的单项接口）。
@@ -152,6 +158,17 @@ export function useBookmarks(docId: string, enabled: boolean): BookmarksApi {
       }
       try {
         await api.createBookmark(payload)
+        // 在线补报成功后，把同 bookmarkId 的离线行清掉；
+        // 不清的话「待同步 N 条」会一直挂着，直到手动一键同步
+        try {
+          const done = pickSyncedBookmark(
+            await listPending(authStore.userId, docId),
+            payload.bookmarkId,
+          )
+          if (done.length > 0) await clearPending(done.map((r) => r.id))
+        } catch {
+          /* 清队列失败不影响书签创建 */
+        }
         await reload()
       } catch (e) {
         if (e instanceof ApiError && e.status === 0) {
@@ -159,7 +176,7 @@ export function useBookmarks(docId: string, enabled: boolean): BookmarksApi {
           void enqueuePending(docId, 'bookmark', {
             ...payload,
             kind: 'created',
-          })
+          }, authStore.userId)
           setItems((prev) => [
             ...prev,
             { ...payload, version: 0, createdAt: payload.updatedAt, deletedAt: null },

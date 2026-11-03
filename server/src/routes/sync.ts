@@ -21,6 +21,14 @@ import { withIdempotency } from '../idempotency'
 interface SyncBody {
   deviceId?: string
   since?: string | null
+  /**
+   * 是否回传服务端增量（默认 true）。
+   *
+   * 一键同步只需要"补报本机队列 + 读回冲突"，不消费 changes；
+   * 置 false 可以跳过 listBookmarksSince 的全量扫描，书签很多时省一大截。
+   * 这是向后兼容的扩展：老调用方不传，行为不变。
+   */
+  includeChanges?: boolean
   progress?: {
     docId?: string
     anchor?: unknown
@@ -45,6 +53,8 @@ interface BookmarkIn {
   updatedAt?: string
   deletedAt?: string | null
   baseVersion?: number
+  /** B4：离线创建的书签也要把章节标题带回来 */
+  chapterTitle?: string | null
 }
 
 /*
@@ -63,14 +73,41 @@ function applyBookmarkList(
   list: BookmarkIn[],
   docIdHint: string | undefined,
   conflicts: ConflictEnvelope[],
-): number {
+): { applied: number; skipped: string[] } {
   let applied = 0
+  const skipped: string[] = []
+
   for (const item of list) {
     if (!item.bookmarkId) continue
     // 契约 §8.1：updated / deleted 条目只给 bookmarkId，docId 要从库里反查
     const existing = dal.getBookmarkById(item.bookmarkId)
+
+    /*
+     * created 条目必须校验文档归属与存在性。
+     *
+     * 不校验的话，任何已登录读者都能把书签写进别人的文档（外键只要求 doc 存在）；
+     * 文档已被删除时，插入会撞外键约束报 500，而客户端只在 404 时清队列 ——
+     * 这条坏记录会让之后的每一次「一键同步」都卡在同一个 500 上。
+     *
+     * 这里选择**跳过并回传 skipped**，而不是让整批请求 404/403：
+     * 一次批量同步可能带着多本书的书签，不能因为其中一本已删除就丢掉其余全部。
+     */
     const docId = item.docId ?? existing?.doc_id ?? docIdHint
-    if (!docId) continue
+    if (!docId) {
+      skipped.push(item.bookmarkId)
+      continue
+    }
+    if (op === 'created') {
+      const doc = dal.getDocumentById(docId)
+      if (!doc || doc.owner_id !== userId) {
+        skipped.push(item.bookmarkId)
+        continue
+      }
+    } else if (existing && existing.user_id !== userId) {
+      // 别人的书签一律当作不存在，避免跨用户改/删
+      skipped.push(item.bookmarkId)
+      continue
+    }
 
     const r = applyBookmark(
       userId,
@@ -84,6 +121,7 @@ function applyBookmarkList(
         name: item.name ?? null,
         updatedAt: item.updatedAt ?? now(),
         deletedAt: item.deletedAt ?? null,
+        chapterTitle: item.chapterTitle,
       },
       item.baseVersion,
       deviceId,
@@ -92,7 +130,7 @@ function applyBookmarkList(
     // 落库由 applyBookmark 内部完成（A4 把 persistConflict 下沉到了 service 层）
     if (r.conflict) conflicts.push(r.conflict)
   }
-  return applied
+  return { applied, skipped }
 }
 
 /**
@@ -131,11 +169,19 @@ function doSync(userId: string, b: SyncBody) {
 
   /* ---- 书签 ---- */
   const bm = b.bookmarks ?? {}
-  const created = applyBookmarkList(userId, deviceId, 'created', bm.created ?? [], undefined, conflicts)
-  const updated = applyBookmarkList(userId, deviceId, 'updated', bm.updated ?? [], undefined, conflicts)
-  const deleted = applyBookmarkList(userId, deviceId, 'deleted', bm.deleted ?? [], undefined, conflicts)
+  const createdResult = applyBookmarkList(userId, deviceId, 'created', bm.created ?? [], undefined, conflicts)
+  const updatedResult = applyBookmarkList(userId, deviceId, 'updated', bm.updated ?? [], undefined, conflicts)
+  const deletedResult = applyBookmarkList(userId, deviceId, 'deleted', bm.deleted ?? [], undefined, conflicts)
+  const created = createdResult.applied
+  const updated = updatedResult.applied
+  const deleted = deletedResult.applied
+  // 文档已删除 / 不属于当前读者 / 缺 docId 的条目：跳过并在响应里点名，
+  // 客户端据此清掉待同步队列，避免一条坏记录卡住整次同步。
+  const skipped = [...createdResult.skipped, ...updatedResult.skipped, ...deletedResult.skipped]
 
   /* ---- 服务端增量 ---- */
+
+  const includeChanges = b.includeChanges !== false
 
   // 本次请求碰过的书签不再回传给客户端，否则会把自己的改动当成他端变更
   const touched = new Set<string>()
@@ -143,9 +189,11 @@ function doSync(userId: string, b: SyncBody) {
     for (const it of list ?? []) if (it.bookmarkId) touched.add(it.bookmarkId)
   }
 
-  const changedBookmarks = dal
-    .listBookmarksSince(userId, progressDocId, since, true)
-    .filter((r) => !touched.has(r.bookmark_id))
+  const changedBookmarks = includeChanges
+    ? dal
+      .listBookmarksSince(userId, progressDocId, since, true)
+      .filter((r) => !touched.has(r.bookmark_id))
+    : []
 
   const changesBookmarks = {
     created: changedBookmarks
@@ -167,7 +215,7 @@ function doSync(userId: string, b: SyncBody) {
 
   // 他端进度：取最近更新的一条（不属于本设备的）
   let changesProgress: unknown = null
-  if (progressDocId) {
+  if (includeChanges && progressDocId) {
     const others = dal
       .listProgressByDocument(userId, progressDocId)
       .filter((r) => r.device_id !== deviceId)
@@ -185,7 +233,7 @@ function doSync(userId: string, b: SyncBody) {
     serverTime: now(),
     applied: {
       progress: progressApplied,
-      bookmarks: { created, updated, deleted },
+      bookmarks: { created, updated, deleted, skipped },
     },
     conflicts,
     changes: {

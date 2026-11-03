@@ -38,6 +38,8 @@ export function SessionProvider({ children }: { children: ReactNode }) {
               nickname: me.nickname,
               avatarUrl: me.avatarUrl,
             })
+            // 离线队列按读者隔离，oneClickSync 不是 hook，从 authStore 取
+            authStore.setUser(me.userId)
           }
         }
       } catch {
@@ -54,6 +56,7 @@ export function SessionProvider({ children }: { children: ReactNode }) {
   const login = useCallback(async (account: string, password: string) => {
     const r = await api.login({ account, password })
     authStore.set(r)
+    authStore.setUser(r.user.userId)
     setUser(r.user)
     return r.user
   }, [])
@@ -89,6 +92,7 @@ export function SessionProvider({ children }: { children: ReactNode }) {
         nickname: me.nickname,
         avatarUrl: me.avatarUrl,
       })
+      authStore.setUser(me.userId)
     } catch {
       // 拉不到就维持现状：这是刷新副本，不是关键路径，不该把界面搞崩
     }

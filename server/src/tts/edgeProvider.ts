@@ -13,6 +13,57 @@ import type { SynthResult, TtsProvider, VoiceInfo } from './providers'
  */
 const TIMEOUT_MS = Number(process.env.TTS_TIMEOUT_MS ?? 20000)
 
+/**
+ * 给不接收 AbortSignal 的 Promise 套一层超时。
+ *
+ * Edge 的 `getVoices()` 没有 timeout / signal 参数：微软那边不响应时
+ * 探测会一直挂着，连带把 /api/tts/engines 和所有合成请求都堵死。
+ */
+export function withTimeout<T>(
+  promise: Promise<T>,
+  ms: number,
+  message = '语音服务响应超时',
+): Promise<T> {
+  let timer: ReturnType<typeof setTimeout> | undefined
+  const timeout = new Promise<never>((_, reject) => {
+    timer = setTimeout(() => reject(new Error(message)), ms)
+  })
+  return Promise.race([promise, timeout]).finally(() => {
+    if (timer !== undefined) clearTimeout(timer)
+  })
+}
+
+/**
+ * Edge 实际能产出的格式。
+ *
+ * 适配层目前只映射 MP3 与 WebM-Opus；wav / aac / flac 等一律返回 null，
+ * 由上层回 400。**绝不能**把 MP3 字节写进 `.wav` 缓存再按 audio/wav 返回 ——
+ * 同一请求第一次与第二次的 Content-Type 会不一致。
+ */
+export interface EdgeFormat {
+  format: 'mp3' | 'opus'
+  contentType: string
+  outputFormat: string
+}
+
+export function resolveEdgeFormat(format: string): EdgeFormat | null {
+  if (format === 'mp3') {
+    return {
+      format: 'mp3',
+      contentType: 'audio/mpeg',
+      outputFormat: Constants.OUTPUT_FORMAT.AUDIO_24KHZ_48KBITRATE_MONO_MP3,
+    }
+  }
+  if (format === 'opus') {
+    return {
+      format: 'opus',
+      contentType: 'audio/ogg',
+      outputFormat: Constants.OUTPUT_FORMAT.WEBM_24KHZ_16BIT_MONO_OPUS,
+    }
+  }
+  return null
+}
+
 /** Edge 的 LocalName 是英文拼写，界面上换成中文名 */
 const ZH_LABELS: Record<string, string> = {
   'zh-CN-XiaoxiaoNeural': '晓晓（女·温柔）',
@@ -71,7 +122,8 @@ export class EdgeTtsProvider implements TtsProvider {
   readonly label = '云端语音（Edge）'
 
   async listVoices(): Promise<VoiceInfo[]> {
-    const voices = await tts.getVoices()
+    // getVoices 没有 signal/timeout 参数，必须自己兜一层
+    const voices = await withTimeout(tts.getVoices(), TIMEOUT_MS, 'Edge 音色列表超时')
     return voices
       .filter((v) => (v.Locale ?? '').toLowerCase().startsWith('zh'))
       .sort((a, b) => rank(a) - rank(b))
@@ -84,24 +136,39 @@ export class EdgeTtsProvider implements TtsProvider {
       }))
   }
 
+  /** 只声明实际支持的格式；上层据此决定缓存扩展名与 Content-Type */
+  resolveFormat(format: string): { format: string; contentType: string } | null {
+    const f = resolveEdgeFormat(format)
+    return f ? { format: f.format, contentType: f.contentType } : null
+  }
+
   async synthesize(
     text: string,
     voice: string,
     rate: number,
-    _format: string,
+    format: string,
   ): Promise<SynthResult> {
+    const f = resolveEdgeFormat(format)
+    if (!f) throw new Error(`Edge 不支持音频格式 ${format}`)
+
     // 接口的 rate 是倍率（0.5–2.0），Edge 的 rate 是相对百分比（-50% ~ +100%）
     const pct = Math.round((rate - 1) * 100)
     const rateStr = `${pct >= 0 ? '+' : ''}${pct}%`
 
-    const result = await tts.generate(text, voice, {
-      rate: rateStr,
-      outputFormat: Constants.OUTPUT_FORMAT.AUDIO_24KHZ_48KBITRATE_MONO_MP3,
-      timeout: TIMEOUT_MS,
-      signal: AbortSignal.timeout(TIMEOUT_MS),
-    })
+    // generate 自身有 signal 与 timeout，这里再套一层 Promise 超时：
+    // 万一底层实现忽略了 signal，也不会把请求挂死。
+    const result = await withTimeout(
+      tts.generate(text, voice, {
+        rate: rateStr,
+        outputFormat: f.outputFormat,
+        timeout: TIMEOUT_MS,
+        signal: AbortSignal.timeout(TIMEOUT_MS),
+      }),
+      TIMEOUT_MS,
+      'Edge 语音合成超时',
+    )
 
-    return { buffer: Buffer.from(result.audio), contentType: 'audio/mpeg' }
+    return { buffer: Buffer.from(result.audio), contentType: f.contentType }
   }
 }
 

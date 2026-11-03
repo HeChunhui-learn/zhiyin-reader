@@ -341,6 +341,11 @@ type Anchor = {
 `POST /api/sync` 的请求体包含 `deviceId`、`since`、`progress`、`bookmarks.created / updated / deleted`；
 响应包含 `serverTime`、`applied`、`conflicts`、`changes`。
 
+- `created` 条目必须校验 `docId` 属于当前读者且文档仍存在；不合法时**跳过该条**，
+  在 `applied.bookmarks.skipped` 里回传 `bookmarkId`，不让整批请求 404/500。
+- 可选字段 `includeChanges: false`：一键同步只补报队列、读回冲突，不消费服务端增量，
+  服务端据此跳过 `listBookmarksSince` 的全量扫描。缺省为 `true`，老调用方行为不变。
+
 冲突信封三种 `resolution`：
 
 | resolution | 场景 | 服务端行为 |
@@ -363,6 +368,9 @@ type Anchor = {
 - 引擎 id：`kokoro-local`、`edge-tts`、`browser-native`。
   `available=false` 的引擎不进前端列表；浏览器原生永远可用，是兜底路径。
 - 语速是倍率（0.5～2.0）；Edge 上游的 rate 是百分比，由适配层换算。
+- 引擎只能产出有限格式时由适配层声明：Edge 支持 `mp3`（audio/mpeg）与
+  `opus`（audio/ogg），其余格式返回 `400 VALIDATION_FAILED`。
+  缓存扩展名与 `Content-Type` 必须按**实际产出格式**取，不能把 MP3 写进 `.wav`。
 
 **阅读时长**
 
@@ -437,8 +445,9 @@ type Anchor = {
    - 一端删、一端改 → 保留修改；
    - 进度 → `superseded`，自动按不回退保护裁决。
 5. 冲突写入 `T_SyncRecord`；`GET /api/sync/conflicts` 读回未决项，读者裁决后销账。
-6. 网络失败的变更进 IndexedDB 待同步队列；书架「一键同步」按文档分组补报，
-   一次点击用一个幂等键前缀，重试不会重复落库。
+6. 网络失败的变更进 IndexedDB 待同步队列；队列**按读者隔离**，切换账号不会补报上一位读者的数据。
+7. 书架「一键同步」：进度按文档分组、同一本只补最后一条；所有待同步书签合并成**一次**请求。
+   一次点击用一个幂等键前缀，重试不会重复落库；某组失败不影响其余组。
 
 ### 6.5 阅读时长
 

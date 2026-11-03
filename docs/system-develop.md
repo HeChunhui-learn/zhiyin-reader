@@ -15,7 +15,7 @@
 | 版本 | 客户端与服务端 `1.3.0`；Android 壳的 `versionCode / versionName` 在 `client/android/app/build.gradle` |
 | 功能 | 导入解析、图文混排、逐句跟读、跨设备同步与冲突、收藏、阅读时长、头像、书签排序与总览、网页 / 原生更新提示、一键同步 |
 | 数据库 | 13 张表，权威定义 `server/sql/schema.sql` |
-| 测试 | 服务端 239 项 + 客户端 192 项 + 端到端 43 项 = **474 项** |
+| 测试 | 服务端 248 项 + 客户端 207 项 + 端到端 43 项 = **498 项** |
 | 技术栈 | React 18 + Vite + TypeScript；Fastify 4 + better-sqlite3；SQLite |
 | 运行环境 | Node.js 20+；桌面浏览器窗口 ≥ 1280px |
 
@@ -164,7 +164,7 @@ client/
 │  ├─ models/types.ts        文档与段落类型
 │  ├─ app.css                全站样式（单文件）
 │  └─ App.tsx                路由表
-├─ test/                    Vitest 纯函数测试（10 个文件）
+├─ test/                    Vitest 纯函数测试（12 个文件）
 ├─ e2e/                     Playwright（3 个 spec + 2 个 fixture）
 ├─ android/                 Capacitor Android 壳
 ├─ capacitor.config.ts
@@ -191,7 +191,7 @@ server/
 │  └─ dao/index.ts          DataAccessLibrary
 ├─ sql/schema.sql           13 张表的权威定义
 ├─ sql/seed.ts              演示数据（口令必须用 hashPassword 生成真实哈希）
-├─ test/                    6 个测试文件 + helpers + setup
+├─ test/                    7 个测试文件 + helpers + setup
 ├─ e2e-server.mjs           端到端专用启动器（独立 data-e2e）
 └─ data/                    SQLite、密钥、files / images / avatars / tts
 ```
@@ -284,8 +284,17 @@ server/
 10. 冲突提示要在 `reload()` 之后设置，`reload()` 成功会清空 error。
 11. 幂等键存 `T_Idempotency`，主键 `(user_id, idem_key)`；24 小时 TTL 在读取时判定。
 12. `sort_order` 的合并规则是 `superseded`，不是 `keep_both`（后者会造重复副本）。
-13. 一键同步按文档分组补报，只补最后一条进度；文档已删除（404）时清掉队列记录，
-    别让它卡住整次同步。
+13. 一键同步：进度按文档分组、同一本只补最后一条；书签合并成一次请求。
+    某组 5xx / 网络失败只保留该组队列并计入 `failed`，不能中断其余组；
+    404（文档已删除）清掉该组队列。
+14. **批量同步的 `created` 书签必须校验 `docId` 的属主与存在性**。不校验会写进别人的文档；
+    文档已删除时插入撞外键、返回 500，而客户端只在 404 时清队列 —— 一条坏记录会永久卡住同步。
+    现在的做法是**跳过并回传 `applied.bookmarks.skipped`**，不让整批请求失败。
+15. 离线队列**按读者隔离**：`PendingChange.userId` 记录归属，`listPending` 只返回当前读者的行；
+    旧版本没有 `userId` 的行一律忽略。切换账号后绝不能把上一位读者的队列补报到新账号。
+16. 一键同步不消费 `changes`，请求带 `includeChanges: false`，服务端跳过全量增量扫描。
+17. 进度 / 书签在线补报成功后，要清掉对应的旧队列行（`pickSyncedProgress` /
+    `pickSyncedBookmark`），否则「待同步 N 条」会一直挂着。
 
 ### 4.7 epub.js 的三个坑
 
@@ -326,11 +335,11 @@ server/
 
 | 层 | 工具 | 位置 | 规模 | 覆盖什么 |
 |---|---|---|---|---|
-| 单元 | Vitest | `client/test/` | 10 文件 / **192 项** | 纯函数：解析、切句、缓存键、窗口几何、构建号 |
-| 接口与集成 | Vitest + `app.inject()` | `server/test/` | 6 文件 / **239 项** | 真实路由、状态码、错误码、数据库副作用 |
+| 单元 | Vitest | `client/test/` | 12 文件 / **207 项** | 纯函数：解析、切句、缓存键、窗口几何、构建号、待同步队列与一键同步编排 |
+| 接口与集成 | Vitest + `app.inject()` | `server/test/` | 7 文件 / **248 项** | 真实路由、状态码、错误码、数据库副作用、同步越权与 Edge TTS 适配 |
 | 端到端 | Playwright + 真实 Chrome | `client/e2e/` | 3 spec / **43 项** | 真实浏览器：排版、滚动、点击、多上下文同步、EPUB |
 
-合计 **474 项**。
+合计 **498 项**。
 
 ### 5.2 分层边界（别越界）
 
@@ -419,7 +428,7 @@ CI（GitHub Actions）三个 job 并行：`static`（两端类型检查 + 前端
 | 暂停语义 | 暂停是「停掉当前句」，恢复时该句从头念，不是句中断点续播 |
 | 双窗口同一设备 | 两个窗口共享 localStorage，`deviceId` 相同；真跨设备要用两台机器 |
 | 冲突界面 | 未决冲突只在 `ReaderView` 读回，`LibraryView` 还没接入 |
-| 同步增量 | `POST /api/sync` 每次整体比较所有书签，未做真正增量游标 |
+| 同步增量 | 一键同步已用 `includeChanges: false` 跳过扫描；普通批量同步仍整体比较所有书签，未做真正增量游标 |
 | 幂等覆盖 | `Idempotency-Key` 只覆盖 `/api/sync`，单项接口没接 |
 | 图片懒上传 | 只在阅读时触发；导入后从未打开过的书，服务端一张图都没有（设计如此） |
 | 主包体积 | `epubjs` 300KB+ 打进主包，没做代码分割 |
@@ -451,9 +460,25 @@ CI（GitHub Actions）三个 job 并行：`static`（两端类型检查 + 前端
 |---|---|---|
 | 裁决请求体 `relatedId` | 额外必填字段 | `keep_both` 后要二选一，必须知道另一条记录 |
 | 书签 `sortOrder` / `chapterTitle` | 可选字段 | 老调用方不传时服务端补默认值 |
+| `POST /api/sync` 的 `includeChanges` | 可选开关，缺省 true | 一键同步不需要服务端增量，关掉可省全量扫描 |
+| `applied.bookmarks.skipped` | 响应里新增数组 | 文档已删 / 越权 / 缺 docId 的条目被跳过，客户端据此清队列 |
 | 导入段落 `type` | 契约示例里没有 `type` | 标题 / 图片段需要类型 |
 | 音频表 | 不建 | 只做文件与 IndexedDB 缓存 |
 | AI 伴读 | 只留接口占位 | 明确不做 |
+
+### 质量审查修复（1.3.0 之后）
+
+| 问题 | 修复 |
+|---|---|
+| 批量同步的 created 书签不校验 `docId` 属主 / 存在性 | 服务端跳过并回传 `skipped`；文档已删除不再 500 |
+| 离线队列不区分读者 | `PendingChange.userId` + `listPending` 按读者过滤；`authStore.userId` 由 Session 维护 |
+| 一键同步只清 404、坏记录会永久卡住 | 无效条目走 `skipped` 正常清队列；5xx 保留该组并继续其余组 |
+| 批量同步丢失 `chapterTitle` | `BookmarkIn` / `BookmarkPayload` / 落库全链路透传 |
+| Edge 音色探测无超时 | `withTimeout` 包住 `getVoices` 与 `generate` |
+| Edge 忽略请求格式、Content-Type 不一致 | `resolveFormat` 声明实际格式；只支持 mp3 / opus，其余 400 |
+| 进度成功后旧队列行不清 | `pickSyncedProgress` / `pickSyncedBookmark` 在在线成功后清行 |
+| 书签补报按文档串行、每次全量扫描 | 书签合并为一次请求；`includeChanges: false` 跳过增量扫描 |
+| 触摸屏桌面被误判为手机 | `isPhoneOrTablet` 改为「粗指针 + 无 hover」 |
 
 ### 1.3.0
 

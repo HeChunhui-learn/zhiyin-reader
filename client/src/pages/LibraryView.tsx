@@ -239,6 +239,15 @@ export default function LibraryView() {
       if (result.conflicts > 0) {
         setSyncPhase('conflict')
         setNotice({ kind: 'done', text: `同步完成，有 ${result.conflicts} 条冲突待处理` })
+      } else if (result.failed > 0) {
+        // 部分组没补报成功（5xx / 网络）：保留它们的队列，提示稍后重试
+        setSyncPhase('error')
+        setNotice({
+          kind: 'failed',
+          text: result.flushed > 0
+            ? `已补报 ${result.flushed} 条，另有 ${result.failed} 组失败，请稍后重试`
+            : `同步失败（${result.failed} 组），请稍后重试`,
+        })
       } else {
         setSyncPhase('ok')
         setNotice({

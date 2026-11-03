@@ -251,12 +251,12 @@ zhiyin-reader/
 
 ## 测试
 
-三层测试，合计 **474 项**：
+三层测试，合计 **498 项**：
 
 | 层 | 位置 | 规模 | 命令 |
 |---|---|---|---|
-| 服务端接口与集成 | `server/test/` | 6 文件 / 239 项 | `cd server && npm test` |
-| 客户端单元 | `client/test/` | 10 文件 / 192 项 | `cd client && npm test` |
+| 服务端接口与集成 | `server/test/` | 7 文件 / 248 项 | `cd server && npm test` |
+| 客户端单元 | `client/test/` | 12 文件 / 207 项 | `cd client && npm test` |
 | 浏览器端到端 | `client/e2e/` | 3 spec / 43 项 | `cd client && npx playwright test` |
 
 提交前的门禁：
