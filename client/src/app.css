@@ -2334,6 +2334,49 @@ button {
   opacity: 0.75;
 }
 
+/* 一键同步：桌面 / 平板在「已同步」上方，手机在分类条下方自成一行 */
+.sync-box {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-top: auto;
+}
+
+.sync-box .sync-badge {
+  margin-top: 0;
+}
+
+.sync-now {
+  width: 100%;
+  padding: 8px 12px;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  background: var(--bg);
+  color: var(--primary);
+  font-size: 12px;
+  letter-spacing: 0.04em;
+  cursor: pointer;
+  transition: background 0.16s, border-color 0.16s, color 0.16s;
+}
+
+.sync-now:hover:not(:disabled) {
+  background: var(--fill);
+  border-color: var(--primary);
+}
+
+.sync-now:disabled {
+  color: var(--muted);
+  cursor: default;
+  opacity: 0.72;
+}
+
+/* 导航项容器：桌面纵向，手机横向滚动；把原来的侧栏滚动逻辑收进来 */
+.shelf-nav-scroll {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+}
+
 .shelf-main {
   padding: 26px 30px;
   background-color: var(--bg-soft);
@@ -2873,6 +2916,87 @@ button {
   font-size: 12px;
 }
 
+/* ------------------------------------------- 网页版更新轻提示（手机 / 平板） */
+
+/*
+ * 只出现在网页端：一条顶部胶囊，不遮正文、不阻塞操作。
+ * 原生壳里的强制更新仍由 .update-gate 负责。
+ */
+.web-update-banner {
+  position: fixed;
+  top: calc(env(safe-area-inset-top, 0px) + 10px);
+  left: 50%;
+  z-index: 9998;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  max-width: calc(100vw - 24px);
+  padding: 8px 8px 8px 14px;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  background: var(--bg);
+  box-shadow: 0 12px 36px rgba(12, 20, 32, 0.22);
+  color: var(--text);
+  font-size: 13px;
+  transform: translateX(-50%);
+  animation: web-update-in 180ms ease-out;
+}
+
+.web-update-dot {
+  width: 7px;
+  height: 7px;
+  flex: 0 0 auto;
+  border-radius: 50%;
+  background: var(--primary);
+}
+
+.web-update-text {
+  white-space: nowrap;
+  letter-spacing: 0.02em;
+}
+
+.web-update-action {
+  border: 0;
+  border-radius: 999px;
+  padding: 6px 12px;
+  background: var(--primary);
+  color: #fff;
+  font-size: 12px;
+  cursor: pointer;
+}
+
+.web-update-close {
+  border: 0;
+  padding: 2px 6px;
+  background: transparent;
+  color: var(--muted);
+  font-size: 17px;
+  line-height: 1;
+  cursor: pointer;
+}
+
+@keyframes web-update-in {
+  from {
+    opacity: 0;
+    transform: translate(-50%, -6px);
+  }
+  to {
+    opacity: 1;
+    transform: translate(-50%, 0);
+  }
+}
+
+@media (max-width: 520px) {
+  .web-update-banner {
+    gap: 6px;
+    padding-left: 12px;
+    font-size: 12px;
+  }
+  .web-update-action {
+    padding: 6px 10px;
+  }
+}
+
 /* ------------------------------------------------------------ 强制更新弹窗 */
 
 /*
@@ -3130,13 +3254,19 @@ button {
     flex-direction: column;
   }
   .shelf-side {
-    flex-direction: row;
-    align-items: center;
+    flex-direction: column;
+    align-items: stretch;
     width: 100%;
     gap: 8px;
     padding: 10px 16px;
     border-right: none;
     border-bottom: 1px solid var(--border);
+  }
+  .shelf-nav-scroll {
+    flex-direction: row;
+    align-items: center;
+    gap: 8px;
+    width: 100%;
     overflow-x: auto;
     /* 横向分类条在手机 WebView 里会常驻一条灰色滚动条，隐藏掉，靠滑动操作 */
     scrollbar-width: none;
@@ -3146,8 +3276,23 @@ button {
     mask-image: linear-gradient(90deg, transparent 0, #000 16px, #000 calc(100% - 16px), transparent 100%);
     -webkit-mask-image: linear-gradient(90deg, transparent 0, #000 16px, #000 calc(100% - 16px), transparent 100%);
   }
-  .shelf-side::-webkit-scrollbar {
+  .shelf-nav-scroll::-webkit-scrollbar {
     display: none;
+  }
+  .sync-box {
+    margin: 2px 0 0 auto;
+    flex-direction: column;
+    align-items: flex-end;
+    gap: 6px;
+  }
+  .sync-now {
+    width: auto;
+    padding: 6px 12px;
+    font-size: 12px;
+  }
+  .sync-box .sync-badge {
+    padding: 6px 10px;
+    font-size: 11px;
   }
   .side-item {
     flex: none;

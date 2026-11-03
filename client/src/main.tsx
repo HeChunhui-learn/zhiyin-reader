@@ -5,6 +5,7 @@ import App from './App'
 import { SessionProvider } from './state/session'
 import { SettingsProvider } from './features/settings/SettingsProvider'
 import UpdateGate from './features/app/UpdateGate'
+import WebUpdateBanner from './features/app/WebUpdateBanner'
 import { isNativeApp } from './api/platform'
 import './app.css'
 
@@ -27,6 +28,8 @@ ReactDOM.createRoot(document.getElementById('root')!).render(
         <SessionProvider>
           {/* 强制更新闸门：原生壳里发现版本落后就盖一层不可关闭的弹窗 */}
           <UpdateGate>
+            {/* 网页版（手机 / 平板）的轻提示；原生壳由 UpdateGate 接管 */}
+            <WebUpdateBanner />
             <App />
           </UpdateGate>
         </SessionProvider>

@@ -8,6 +8,7 @@ import LineIcon, { type LineIconName } from '../features/brand/LineIcon'
 import { usePointerGlow } from '../features/motion/usePointerGlow'
 import ThemeToggle from '../features/settings/ThemeToggle'
 import { useSession } from '../state/session'
+import { pendingSyncCount, syncAllPending } from '../features/sync/oneClickSync'
 
 type NavKey = 'all' | 'recent' | 'favorite' | 'bookmarks' | 'offline'
 
@@ -86,6 +87,12 @@ export default function LibraryView() {
   const [bmError, setBmError] = useState('')
   /** 正在切换收藏状态的那本书（防连点） */
   const [busyFav, setBusyFav] = useState<string | null>(null)
+  /** 一键同步：进行中 / 完成 / 有冲突 / 失败 */
+  const [syncPhase, setSyncPhase] = useState<'idle' | 'syncing' | 'ok' | 'conflict' | 'error'>(
+    'idle',
+  )
+  /** IndexedDB 待同步队列里的条数，用来把「已同步」变成真实的徽标 */
+  const [pendingSync, setPendingSync] = useState(0)
 
   /**
    * 已展开的文档组。**存"展开集"而不是"折叠集"**：
@@ -122,6 +129,22 @@ export default function LibraryView() {
   useEffect(() => {
     if (ready && !user) navigate('/login', { replace: true })
   }, [ready, user, navigate])
+
+  /* 回到书架时读一次待同步条数：阅读中失败的进度/书签会在这里显示成「待同步 N 条」 */
+  useEffect(() => {
+    if (!user) return
+    let alive = true
+    void pendingSyncCount()
+      .then((n) => {
+        if (alive) setPendingSync(n)
+      })
+      .catch(() => {
+        /* IndexedDB 不可用时不显示待同步数，不影响书架 */
+      })
+    return () => {
+      alive = false
+    }
+  }, [user])
 
   /* 手机横向分类条：切分类时把当前项滚到中间 */
   useEffect(() => {
@@ -180,6 +203,64 @@ export default function LibraryView() {
   useEffect(() => {
     void loadOverview()
   }, [loadOverview])
+
+  const syncBadgeClass =
+    syncPhase === 'syncing'
+      ? 'sync-busy'
+      : syncPhase === 'conflict' || syncPhase === 'error'
+        ? 'sync-conflict'
+        : pendingSync > 0
+          ? 'sync-idle'
+          : 'sync-ok'
+
+  const syncBadgeText =
+    syncPhase === 'syncing'
+      ? '同步中…'
+      : syncPhase === 'conflict'
+        ? '有冲突待处理'
+        : syncPhase === 'error'
+          ? '同步失败'
+          : pendingSync > 0
+            ? `待同步 ${pendingSync} 条`
+            : '已同步'
+
+  /**
+   * 一键同步：补报离线队列 → 读回未决冲突 → 刷新当前书架。
+   *
+   * 不做全量拉取 —— 书架用 listDocuments、书签总览用 listBookmarksOverview，
+   * 两者本来就直接读服务端，同步完重新加载即可。
+   */
+  async function onSyncAll() {
+    if (syncPhase === 'syncing') return
+    setSyncPhase('syncing')
+    try {
+      const result = await syncAllPending()
+      setPendingSync(0)
+      if (result.conflicts > 0) {
+        setSyncPhase('conflict')
+        setNotice({ kind: 'done', text: `同步完成，有 ${result.conflicts} 条冲突待处理` })
+      } else {
+        setSyncPhase('ok')
+        setNotice({
+          kind: 'done',
+          text: result.flushed > 0 ? `同步完成，补报 ${result.flushed} 条变更` : '已是最新状态',
+        })
+      }
+      await load()
+      if (nav === 'bookmarks') await loadOverview()
+    } catch (e) {
+      setSyncPhase('error')
+      setNotice({
+        kind: 'failed',
+        text: e instanceof ApiError ? e.message : '同步失败，请稍后重试。',
+      })
+      try {
+        setPendingSync(await pendingSyncCount())
+      } catch {
+        /* 读不到队列就保留旧数字 */
+      }
+    }
+  }
 
   // 翻页 / 换分类时把待决的编辑态一律收干净：选中的书签在新一页上看不见，
   // 留着会让"删除所选"作用到视野之外（见 selected 的注释）；
@@ -536,23 +617,35 @@ export default function LibraryView() {
 
       <div className="shelf-body">
         <aside className="shelf-side">
-          {NAV.map((n) => (
-            <button
-              key={n.key}
-              ref={nav === n.key ? activeSideRef : undefined}
-              className={'side-item' + (nav === n.key ? ' active' : '')}
-              onClick={() => setNav(n.key)}
-            >
-              <LineIcon name={n.icon} size={17} />
-              <span>{n.label}</span>
+          <div className="shelf-nav-scroll">
+            {NAV.map((n) => (
+              <button
+                key={n.key}
+                ref={nav === n.key ? activeSideRef : undefined}
+                className={'side-item' + (nav === n.key ? ' active' : '')}
+                onClick={() => setNav(n.key)}
+              >
+                <LineIcon name={n.icon} size={17} />
+                <span>{n.label}</span>
+              </button>
+            ))}
+            {/* 阅读时长是独立页面，不是书架的一个分类，所以不放进 NAV 里 */}
+            <button className="side-item side-item-link" onClick={() => navigate('/stats')}>
+              <LineIcon name="chart" size={17} />
+              <span>阅读时长</span>
             </button>
-          ))}
-          {/* 阅读时长是独立页面，不是书架的一个分类，所以不放进 NAV 里 */}
-          <button className="side-item side-item-link" onClick={() => navigate('/stats')}>
-            <LineIcon name="chart" size={17} />
-            <span>阅读时长</span>
-          </button>
-          <div className="sync-badge sync-ok">已同步</div>
+          </div>
+          <div className="sync-box">
+            <button
+              type="button"
+              className="sync-now"
+              onClick={() => void onSyncAll()}
+              disabled={syncPhase === 'syncing'}
+            >
+              {syncPhase === 'syncing' ? '同步中…' : '一键同步'}
+            </button>
+            <div className={`sync-badge ${syncBadgeClass}`}>{syncBadgeText}</div>
+          </div>
         </aside>
 
         <main className="shelf-main">
