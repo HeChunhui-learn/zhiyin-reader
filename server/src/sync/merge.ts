@@ -21,7 +21,7 @@ export interface ConflictEnvelope {
   resolved: unknown | null
   /** 给人看的一句话说明，界面直接展示 */
   note?: string
-  /** 删改冲突时用：哪个设备删过它（材料审查 E16 缺的就是这个字段） */
+  /** 删改冲突时用：哪个设备删过它（删改冲突需要知道来源设备） */
   deletedByDevice?: string
 }
 
@@ -171,7 +171,7 @@ export function decideBookmark(
     return { action: { kind: 'idempotent' } }
   }
 
-  // 双方都改了同一条：两份都保留，服务端生成第二条记录的 id（CLAUDE.md 裁决 3）
+  // 双方都改了同一条：两份都保留，服务端生成第二条记录的 id（docs/system-design.md §7 裁决 3）
   return {
     action: { kind: 'keep_both' },
     conflict: {
@@ -232,7 +232,7 @@ export type ProgressDecision =
  *   1. 取 updatedAt 较新者；
  *   2. 施加不回退保护 ——「若较新记录的位置早于本机已读位置，保留较前的位置」。
  *
- * 第 2 条原文是循环表述（材料审查 E13：「较新」与「较前」互相指涉），
+ * 第 2 条原文是循环表述（原文「较新」与「较前」互相指涉），
  * 这里把它落成一条能写成代码的规则：**位置靠后的一方胜出**。
  * 也就是说，只有当"时间上更新的一方"其位置反而更靠后时，位置规则才推翻时间规则 ——
  * 那正是会造成阅读进度倒退的情形，也正是这条保护想防的。

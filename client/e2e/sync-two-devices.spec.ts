@@ -4,7 +4,7 @@ import { DEMO_ACCOUNT, DEMO_DOC_ID, DEMO_PASSWORD, loginSubmit, openDemoBook } f
 /**
  * 跨设备同步与冲突（契约 §6 / §8）—— **两个真实浏览器上下文**。
  *
- * 这是 docs/02 第 6.1 节列的另一处缺口："多设备真机同步 —— 用两个浏览器上下文
+ * 这是 docs/system-develop.md §5.6 列出的缺口："多设备真机同步 —— 用两个浏览器上下文
  * 模拟，未在平板 + 笔记本的真实局域网上跑过"。这里把前半句做到位：
  * 两个独立的 browser context 各有自己的 localStorage / IndexedDB / 内存令牌，
  * 等价于两台设备，走的是同一个真实服务端。

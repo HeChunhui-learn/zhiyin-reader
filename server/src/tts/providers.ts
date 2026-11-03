@@ -3,7 +3,7 @@
  *
  * 默认是本地自托管的 Kokoro-FastAPI —— 它对外提供 **OpenAI 兼容**接口，
  * 所以这个 provider 实际上是"任何 OpenAI 兼容的 /v1/audio/speech"的通用实现：
- * 换成国内云服务商或 OpenAI 官方，只要改环境变量即可（见《技术选型说明》2.4 的分层策略）。
+ * 换成国内云服务商或 OpenAI 官方，只要改环境变量即可（见 docs/system-design.md §6.7 的引擎选择）。
  *
  * 环境变量：
  *   TTS_BASE_URL  默认 http://127.0.0.1:8880/v1

@@ -158,7 +158,7 @@ export function useProgress(docId: string, enabled: boolean): ProgressApi {
    *
    * 契约 §6.3 写的是 `navigator.sendBeacon`，但那在技术上走不通：
    * 它只能发 POST、且不能设置自定义请求头，而这个接口是 PUT 且要带
-   * `Authorization: Bearer`（材料审查 E17）。所以改用 fetch 的 keepalive ——
+   * `Authorization: Bearer`（docs/system-design.md §6.4）。所以改用 fetch 的 keepalive ——
    * 它同样能在页面卸载后把请求发完，且支持请求头。
    */
   const flushBeacon = useCallback(() => {

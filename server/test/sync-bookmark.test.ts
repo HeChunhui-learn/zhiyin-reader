@@ -406,7 +406,7 @@ describe('SY-09 ~ SY-15 书签增删改查（契约 §7）', () => {
     expect(item.deletedAt).toBeTruthy()
   })
 
-  it('★ SY-15 删除事件能被增量拉到（墓碑的 updatedAt 必须刷新 —— 材料审查 E15）', async () => {
+  it('★ SY-15 删除事件能被增量拉到（墓碑的 updatedAt 必须刷新 —— docs/system-develop.md §4.6 第 3 条）', async () => {
     const { s, docId } = await setupReader()
     const id = uniq()
     await app.inject({

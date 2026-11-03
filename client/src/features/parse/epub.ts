@@ -13,7 +13,7 @@ import {
  *
  * 按技术选型：**epub.js 只承担"解析"**——拿元数据、spine 顺序与每一章的 Document；
  * 渲染层完全自研，不碰 epub.js 的 rendition/iframe。这样 EPUB 与 TXT/Markdown
- * 共用同一条渲染管线（见《技术选型说明》2.2 与 .context/09）。
+ * 共用同一条渲染管线（见 docs/system-design.md §6.2）。
  *
  * 图片从压缩包里取出 Blob，交给调用方写进 IndexedDB，再按契约 §4.3 懒上传。
  */
@@ -168,7 +168,7 @@ export async function parseEpub(file: File, fileName = file.name): Promise<EpubP
   //
   // replacements 必须显式关掉：epub.js 在 archived（二进制）模式下默认取 "blobUrl"，
   // 会为书内每一条资源创建一个 object URL 且由它自己持有——我们不用它的渲染层，
-  // 也就永远拿不到那些 URL 去 revoke，等于给每张图都留一份泄漏（04 §4.1.3 要求回收）。
+  // 也就永远拿不到那些 URL 去 revoke，等于给每张图都留一份泄漏（docs/system-design.md §6.2 / §8 要求回收）。
   const book = ePub(buffer, { replacements: 'none' })
   await book.ready
 

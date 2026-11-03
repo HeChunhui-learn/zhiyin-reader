@@ -183,7 +183,7 @@ export function useBookmarks(docId: string, enabled: boolean): BookmarksApi {
    * 先本地重排立即渲染（拖完不许等网络），再发请求。
    * 失败（含 409 整批回滚）就把顺序**回滚到服务端真值** —— reload() 会重新按
    * sort_order 拉一遍，不留半吊子状态。错误提示放在 reload 之后设置，
-   * 否则 reload 成功会清空 error（R5 踩过的坑，见 CLAUDE.md 同步约定第 7 条）。
+   * 否则 reload 成功会清空 error（R5 踩过的坑，见 docs/system-develop.md §4.6 第 10 条）。
    */
   const reorder = useCallback(
     async (orderedIds: string[]) => {

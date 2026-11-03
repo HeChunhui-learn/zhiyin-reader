@@ -124,7 +124,7 @@ export default function ReaderView() {
     if (user) void load()
   }, [load, user])
 
-  /** 句子由前端切分（CLAUDE.md 裁决 1：解析在前端） */
+  /** 句子由前端切分（docs/system-design.md §7 裁决 1：解析在前端） */
   const sentences = useMemo(() => splitSentences(paragraphs), [paragraphs])
   /** 跟读编排：引擎选择、游标推进、预加载、降级都在这里面 */
   const ra = useReadAlong(docId, sentences)
@@ -528,7 +528,7 @@ export default function ReaderView() {
   )
 
   /**
-   * B4：书签默认名 =「章节标题 + 首句片段」（.context/08-书签补充.md §2.3 的要求）。
+   * B4：书签默认名 =「章节标题 + 首句片段」（docs/system-design.md §5.3 的要求）。
    *
    * 章节标题不需要动解析层——ReaderView 已经拿到带 type: 'h1' | 'h2' 的 paragraphs，
    * 取锚点段落**之前最近的一个标题段**即可；之前没有就退回文档里第一个标题段，

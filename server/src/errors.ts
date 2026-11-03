@@ -1,5 +1,5 @@
 /**
- * 统一错误信封，对齐《接口说明文档》§1 与错误码总表 §2：
+ * 统一错误信封，对齐 docs/system-design.md §5.1：
  *   { code, message, details, requestId }
  * 响应头另带 X-Request-Id。
  */

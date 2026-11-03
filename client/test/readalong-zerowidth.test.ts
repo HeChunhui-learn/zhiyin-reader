@@ -5,7 +5,7 @@ import { normalize, splitParagraph } from '../src/features/readalong/splitSenten
 /**
  * R7 零宽字符的两处实现**并不一致**（测试过程中发现的）。
  *
- * `.context/02` 的 R7 要求"切分前剔除零宽字符"，两个模块各实现了一份：
+ * `docs/system-design.md` §6.3 的 R7 要求"切分前剔除零宽字符"，两个模块各实现了一份：
  *   · `client/src/features/parse/types.ts:63` 的 `normalizeText`
  *   · `client/src/features/readalong/splitSentences.ts:67` 的 `ZERO_WIDTH`
  * 后者的注释写着"与 features/parse/types.ts 的口径对齐"，**实际没有对齐** ——

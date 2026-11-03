@@ -3,7 +3,7 @@ import { makeEpub } from './epub-fixture'
 import { collectConsoleErrors, registerFresh } from './fixtures'
 
 /**
- * EPUB 解析的真机用例（docs/02 的 PA-09 ~ PA-14）。
+ * EPUB 解析的真机用例（PA-09 ~ PA-14）。
  *
  * 为什么放在端到端而不是 Vitest：见 `e2e/epub-fixture.ts` 顶部的说明 ——
  * epub.js 的 `section.load()` 需要真实 DOM，在 Node 里会静默挂住；

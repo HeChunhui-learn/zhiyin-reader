@@ -292,7 +292,7 @@ export default async function syncRoutes(app: FastifyInstance) {
     }
 
     // 契约的 request 里没有 relatedId —— 但 keep_both 之后要"二选一"必须知道另一条是谁。
-    // 这是材料审查 A25 指出的模糊点，这里把 relatedId 定为必填（客户端从
+    // 这是 docs/system-design.md §5.3 指出的模糊点，这里把 relatedId 定为必填（客户端从
     // 冲突项的 resolved.bookmarkId 取）。请求体扩展已在交付说明里记明。
     if (scope === 'bookmark') {
       const original = dal.getBookmarkById(key)

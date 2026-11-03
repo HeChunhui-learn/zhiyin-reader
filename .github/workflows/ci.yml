@@ -14,7 +14,7 @@ name: CI
 
 on:
   push:
-    # V1.* 是 .context 里约定的多角色迭代分支（V1.A / V1.B / V1.C / V1.D）
+    # V1.* 是历史迭代分支（V1.A / V1.B / V1.C / V1.D）
     branches: [dev, main, 'V1.*']
   pull_request:
     branches: [dev, main]
@@ -111,7 +111,7 @@ jobs:
         run: npm test
 
   # ---------------------------------------------------------------------------
-  # 3. 端到端：补 docs/02 第 6.1 节明列的最大缺口「浏览器真机测试」
+  # 3. 端到端：补 docs/system-develop.md §5.6 列出的缺口「浏览器真机测试」
   #    Playwright 自己拉起两个服务（见 client/playwright.config.ts 的 webServer）：
   #      · 服务端 3000 —— 跑 server/e2e-server.mjs，用独立的 data-e2e 库并每轮重建
   #      · 前端   5173 —— Vite dev server，/api 代理到 3000

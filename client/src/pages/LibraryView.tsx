@@ -964,7 +964,7 @@ export default function LibraryView() {
                 {nav === 'favorite'
                   ? '把鼠标移到书封面上，点亮左上角的 ☆ 就收藏了'
                   : nav === 'offline'
-                    ? '"有本地副本"是纯客户端状态，服务端不可知（材料审查 O21）'
+                    ? '"有本地副本"是纯客户端状态，服务端不可知'
                     : '点右上角「导入文档」，选一个 EPUB / TXT / Markdown 文件试试'}
               </p>
             </div>

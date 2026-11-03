@@ -379,7 +379,7 @@ export interface ImportPayload {
 
 /* --------------------------------------------------------- 同步相关类型 */
 
-/** 阅读位置锚点。字段名以接口契约 §6.1 为准（见 CLAUDE.md 裁决 2） */
+/** 阅读位置锚点。字段名以 docs/system-design.md 第 4 节为准（见 §7 裁决 2） */
 export interface Anchor {
   chapterIndex: number
   paragraphIndex: number

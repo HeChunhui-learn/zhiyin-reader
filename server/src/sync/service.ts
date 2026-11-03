@@ -257,7 +257,7 @@ export interface BookmarkApplyResult {
   version: number
   row?: BookmarkRow
   conflict?: ConflictEnvelope
-  /** keep_both 时新生成的那条记录（服务端分配 id，CLAUDE.md 裁决 3） */
+  /** keep_both 时新生成的那条记录（服务端分配 id，docs/system-design.md §7 裁决 3） */
   extra?: BookmarkRow
 }
 
@@ -334,7 +334,7 @@ export function applyBookmark(
         anchor_json: JSON.stringify(anchor),
         name: payload.name ?? null,
         updated_at: isDelete ? (payload.deletedAt ?? occurredAt) : occurredAt,
-        // ★ 软删除也要刷新 updated_at，否则墓碑拉不到（材料审查 E15）
+        // ★ 软删除也要刷新 updated_at，否则墓碑拉不到（docs/system-develop.md §4.6 第 3 条）
         ...(isDelete ? { deleted_at: payload.deletedAt ?? occurredAt } : {}),
       })
       const fresh = dal.getBookmarkById(payload.bookmarkId)!

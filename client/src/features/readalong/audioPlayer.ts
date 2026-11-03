@@ -3,7 +3,7 @@ import { abortError } from './engines/types'
 /**
  * 音频播放器。
  *
- * 04 §4.1.4 的设计要求：
+ * docs/system-design.md §6.3 的设计要求：
  *   · **全程复用同一个音频元素**，避免重复创建带来的解码器初始化开销与资源泄漏
  *   · 播放的是压缩音频（不是 Web Audio 解码后的采样数据），播完释放对象地址
  *

@@ -1,7 +1,7 @@
 /**
  * 图片本地缓存。
  *
- * 依据 04 §4.1.3：
+ * 依据 docs/system-design.md §6.2 / §8：
  *   · 图片缓存上限 200MB 或单文档 300 张（先到者为准）
  *   · 超出时按最后访问时间淘汰最早的条目
  *
@@ -86,7 +86,7 @@ export async function cacheStats(): Promise<CacheStats> {
   }
 }
 
-/** 按 04 §4.1.3 的两条上限淘汰，返回淘汰条数 */
+/** 按 docs/system-design.md §6.2 / §8 的两条上限淘汰，返回淘汰条数 */
 export async function enforceLimits(): Promise<number> {
   const rows = (await tx<CachedImage[]>(STORE_IMAGES, 'readonly', (s) => s.getAll())) ?? []
   return evictByLru<CachedImage>(
@@ -101,7 +101,7 @@ export async function enforceLimits(): Promise<number> {
 /* -------------------------------------------------- 内存中的 object URL 层 */
 
 /**
- * object URL 必须显式 revoke，否则对应的 Blob 不会被回收（04 §4.1.3）。
+ * object URL 必须显式 revoke，否则对应的 Blob 不会被回收（docs/system-design.md §6.2 / §8）。
  * 这里做一层薄封装：同一个 imageId 复用同一个 URL，释放时统一撤销。
  */
 const urls = new Map<string, string>()
