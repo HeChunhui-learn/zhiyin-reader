@@ -2,6 +2,12 @@ import { useRef, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import AppLogo from '../features/brand/AppLogo'
 import LineIcon, { type LineIconName } from '../features/brand/LineIcon'
+import InkField from '../features/motion/InkField'
+import InkBrush from '../features/motion/InkBrush'
+import InkSeal from '../features/motion/InkSeal'
+import InkText from '../features/motion/InkText'
+import GuidePeaks from '../features/motion/GuidePeaks'
+import { useTilt } from '../features/motion/usePointerGlow'
 import guideMountain from '../assets/guide-mountain.jpg'
 
 interface Slide {
@@ -46,20 +52,83 @@ const SLIDES: Slide[] = [
 
 export default function GuidingUI() {
   const [index, setIndex] = useState(0)
+  // 切页时从这一处晕开的一团墨（A4）。key 换一次就重播一遍
+  const [blot, setBlot] = useState<{ x: number; y: number; key: number } | null>(null)
   const navigate = useNavigate()
+  const pageRef = useRef<HTMLDivElement | null>(null)
+  const stageRef = useRef<HTMLDivElement | null>(null)
   const pointerStart = useRef<number | null>(null)
+  const tilt = useTilt(6)
   const slide = SLIDES[index]
 
-  const go = (next: number) => {
-    setIndex(Math.max(0, Math.min(SLIDES.length - 1, next)))
+  /** 把视口坐标换算成页面内坐标，墨团才知道该从哪儿晕开 */
+  const localOf = (clientX: number, clientY: number) => {
+    const rect = pageRef.current?.getBoundingClientRect()
+    if (!rect) return undefined
+    return { x: clientX - rect.left, y: clientY - rect.top }
+  }
+
+  const goTo = (next: number, origin?: { x: number; y: number }) => {
+    const target = Math.max(0, Math.min(SLIDES.length - 1, next))
+    if (target === index) return
+    const rect = pageRef.current?.getBoundingClientRect()
+    setBlot({
+      x: origin ? origin.x : rect ? rect.width * 0.5 : 0,
+      y: origin ? origin.y : rect ? rect.height * 0.42 : 0,
+      key: Date.now(),
+    })
+    setIndex(target)
+  }
+
+  /**
+   * 纸面轻颤（A2）：直接改 DOM 的类，而不是走 state ——
+   * 连着点两下时，remove → 强制回流 → add 能把动画从头再放一遍，
+   * 用 state 做不到（值没变，React 不会重新挂类）。
+   */
+  const shake = () => {
+    const el = stageRef.current
+    if (!el) return
+    if (window.matchMedia('(prefers-reduced-motion: reduce)').matches) return
+    el.classList.remove('is-quake')
+    void el.offsetWidth
+    el.classList.add('is-quake')
+  }
+
+  const onPagePointerDown = (e: React.PointerEvent<HTMLDivElement>) => {
+    // 只认左键和真实触点：右键菜单、拖选文字都不该让纸抖
+    if (e.button !== 0) return
+    shake()
   }
 
   return (
-    <div className="guide-page">
-      <div className="guide-stage" style={{ ['--accent' as string]: slide.accent }}>
-        <div className="guide-emblem"><AppLogo size={46} /></div>
-        <h1 className="guide-title">{slide.title}</h1>
-        <p className="guide-subtitle">{slide.subtitle}</p>
+    <div className="guide-page" ref={pageRef} onPointerDown={onPagePointerDown}>
+      {/* 宣纸上的墨点阵：跟着光标浮起来，切页时也只画这一层 */}
+      <InkField className="guide-field" />
+      {/* 三层墨山：鼠标一动就按不同速度错位 */}
+      <GuidePeaks className="guide-peaks" />
+      {/* 纸面的光：斜射暖光、暗角呼吸、极淡纸纹 */}
+      <div className="guide-light" aria-hidden="true" />
+      <div className="guide-vignette" aria-hidden="true" />
+      <div className="guide-grain" aria-hidden="true" />
+
+      {/* 进页面时盖下的一方大印，随后退成角落里的水印（A8） */}
+      <div className="guide-seal-big" aria-hidden="true">
+        <span className="guide-seal-ripple" />
+        <InkSeal text="知音漫卷" delay={260} />
+      </div>
+
+      <div className="guide-stage" ref={stageRef} style={{ ['--accent' as string]: slide.accent }}>
+        <div className="guide-emblem">
+          <span className="guide-emblem-halo" aria-hidden="true" />
+          <AppLogo size={46} />
+        </div>
+
+        {/* key 挂着页序号：切页时整个重挂，描字动画自然从头播一遍 */}
+        <h1 className="guide-title">
+          <InkText key={`title-${index}`} text={slide.title} stagger={130} duration={560} />
+        </h1>
+
+        <p className="guide-subtitle" key={`sub-${index}`}>{slide.subtitle}</p>
 
         <div
           className="guide-figure"
@@ -70,7 +139,7 @@ export default function GuidingUI() {
             if (pointerStart.current === null) return
             const dx = e.clientX - pointerStart.current
             pointerStart.current = null
-            if (Math.abs(dx) > 60) go(index + (dx < 0 ? 1 : -1))
+            if (Math.abs(dx) > 60) goTo(index + (dx < 0 ? 1 : -1), localOf(e.clientX, e.clientY))
           }}
         >
           <img
@@ -80,14 +149,23 @@ export default function GuidingUI() {
             draggable={false}
           />
           <div className="guide-figure-shade" aria-hidden="true" />
+          <div className="guide-figure-sheen" aria-hidden="true" />
           <div className="guide-figure-badge">
             <LineIcon name={slide.cards[0].icon} size={26} />
           </div>
+          <InkSeal className="guide-seal" text="知音" delay={180} />
+          <span className="guide-figure-hint" aria-hidden="true">拖动切换</span>
         </div>
 
-        <div className="guide-cards">
-          {slide.cards.map((c) => (
-            <div className="guide-card" key={c.title}>
+        <div className="guide-cards" key={`cards-${index}`}>
+          {slide.cards.map((c, i) => (
+            <div
+              className="guide-card"
+              key={c.title}
+              style={{ animationDelay: `${90 + i * 90}ms` }}
+              {...tilt}
+            >
+              <span className="guide-card-glow" aria-hidden="true" />
               <div className="guide-card-icon"><LineIcon name={c.icon} size={21} /></div>
               <div className="guide-card-title">{c.title}</div>
               <div className="guide-card-desc">{c.desc}</div>
@@ -101,8 +179,11 @@ export default function GuidingUI() {
               key={i}
               className={'guide-dot' + (i === index ? ' active' : '')}
               aria-label={`第 ${i + 1} 页`}
-              onClick={() => go(i)}
-            />
+              onClick={(e) => goTo(i, localOf(e.clientX, e.clientY))}
+            >
+              {/* 当前页的点上压一条走完一圈的进度线 */}
+              {i === index && <span className="guide-dot-fill" aria-hidden="true" />}
+            </button>
           ))}
         </div>
 
@@ -117,6 +198,19 @@ export default function GuidingUI() {
 
         <p className="guide-hint">左右滑动或点击圆点切换引导页</p>
       </div>
+
+      {/* 毛笔拖墨 + 墨滴 + 浮尘，盖在最上层，半透明不挡读 */}
+      <InkBrush className="guide-brush" trail splash dust />
+
+      {/* 切页的一团墨：key 变了就重新挂，动画从头播 */}
+      {blot && (
+        <span
+          key={blot.key}
+          className="guide-blot"
+          aria-hidden="true"
+          style={{ left: blot.x, top: blot.y }}
+        />
+      )}
     </div>
   )
 }

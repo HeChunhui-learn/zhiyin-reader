@@ -1,6 +1,8 @@
 import { useCallback, useEffect, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { ApiError, api, type ReadingSummary } from '../api/client'
+import InkSeal from '../features/motion/InkSeal'
+import ThemeToggle from '../features/settings/ThemeToggle'
 import { useSession } from '../state/session'
 
 /**
@@ -67,9 +69,18 @@ export default function StatsView() {
           返回书架
         </button>
         <div className="shelf-brand">阅读时长</div>
+        <InkSeal className="stat-seal" text="漫卷" delay={200} />
+        <div className="topbar-end">
+          <ThemeToggle />
+        </div>
       </header>
 
       <main className="shelf-main stats-main">
+        {/* 纸上的墨晕：和书架一处，别让书架的动效成孤岛 */}
+        <div className="shelf-wash" aria-hidden="true">
+          <i />
+          <i />
+        </div>
         {loading && <div className="shelf-empty">正在统计…</div>}
 
         {!loading && error && (

@@ -5,10 +5,11 @@ import {
   useEffect,
   useLayoutEffect,
   useMemo,
+  useRef,
   useState,
   type ReactNode,
 } from 'react'
-import { applyTheme, readPrefs, writePrefs, type ReaderPrefs } from './prefs'
+import { applyTheme, applyThemeWithRipple, readPrefs, writePrefs, type ReaderPrefs } from './prefs'
 
 /**
  * 阅读偏好的全局容器。
@@ -31,7 +32,16 @@ export function SettingsProvider({ children }: { children: ReactNode }) {
    * 用 useLayoutEffect 而不是 useEffect：后者要等浏览器绘制完才跑，
    * 夜晚模式下每次刷新都会先闪一下白底。
    */
+  /** 这一轮主题变更已经交给墨滴过场去改了，别在这里抢先写 data-theme */
+  const rippleRef = useRef(false)
+
   useLayoutEffect(() => {
+    // 关键：View Transition 的旧快照是在这一帧之后才抓的，
+    // 要是这里先把 data-theme 改了，旧快照就已经是暗色，圆推过去看不出边界
+    if (rippleRef.current) {
+      rippleRef.current = false
+      return
+    }
     applyTheme(prefs.theme)
   }, [prefs.theme])
 
@@ -41,7 +51,25 @@ export function SettingsProvider({ children }: { children: ReactNode }) {
     writePrefs(prefs)
   }, [prefs])
 
+  /**
+   * 换主题时墨团从哪儿晕开（B7）。记的是「上一次按下鼠标的位置」，
+   * 因为点「夜晚」这个动作本身就是一次 pointerdown —— 到这里读到的正好是那一下。
+   */
+  const pointerRef = useRef<{ x: number; y: number } | null>(null)
+  useEffect(() => {
+    const onDown = (e: PointerEvent) => {
+      pointerRef.current = { x: e.clientX, y: e.clientY }
+    }
+    window.addEventListener('pointerdown', onDown, { passive: true, capture: true })
+    return () => window.removeEventListener('pointerdown', onDown, { capture: true })
+  }, [])
+
   const setPrefs = useCallback((patch: Partial<ReaderPrefs>) => {
+    // 主题单独走「墨滴扩散」这条路：其余偏好不需要过场
+    if (patch.theme) {
+      const p = pointerRef.current
+      rippleRef.current = applyThemeWithRipple(patch.theme, p?.x, p?.y)
+    }
     setPrefsState((prev) => ({ ...prev, ...patch }))
   }, [])
 
