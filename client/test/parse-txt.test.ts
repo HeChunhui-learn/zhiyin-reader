@@ -35,13 +35,18 @@ describe('TXT 解析（PA-01 ~ PA-05）', () => {
     expect(r.paragraphs[0].text).toBe('知音漫卷')
   })
 
-  it('PA-05 书名取自第一个一级标题', () => {
+  it('PA-05 书名优先取文件名，占位文件名才退回第一个一级标题', () => {
     const r = parseTxt('人间词话\n\n正文。', 'fallback.txt')
-    // 「人间词话」不是标题格式，书名退回文件名
+    // 「人间词话」不是标题格式，书名仍是文件名
     expect(r.title).toBe('fallback')
 
+    // 文件名里写了书名就用它 —— 《剑来(1-500章).txt》不该叫「第一章 惊蛰」
     const r2 = parseTxt('第一章 人间词话\n\n正文。', 'fallback.txt')
-    expect(r2.title).toBe('第一章 人间词话')
+    expect(r2.title).toBe('fallback')
+
+    // 下载站常见的占位名（纯数字、untitled）才退回第一个标题
+    const r3 = parseTxt('第一章 惊蛰\n\n正文。', '12345.txt')
+    expect(r3.title).toBe('第一章 惊蛰')
   })
 
   it('★ 标题行单独成段，剩下的行是正文（盗版 TXT 的典型形状）', () => {
@@ -52,13 +57,22 @@ describe('TXT 解析（PA-01 ~ PA-05）', () => {
     expect(r.paragraphs[1]).toMatchObject({ type: 'p', text: '这是正文第一句。这是正文第二句。' })
   })
 
-  it('书名不会取到整章（同上的连带后果）', () => {
-    const r = parseTxt('第一章 初识\n很长很长的一段正文，足足有几十个字。', '书.txt')
-    expect(r.title).toBe('第一章 初识')
+  it('超长正文按句末标点拆段（一章一整行的网文 TXT）', () => {
+    // 一章就是一行、七千字的排版：不拆的话阅读器里是一堵墙，
+    // 段落留白、跟读高亮、切段闪动全看不出节奏
+    const oneChapter = '这是第一句。'.repeat(400)
+    const r = parseTxt(`第一章 初识\n${oneChapter}`, '书.txt')
+    expect(r.paragraphs[0]).toMatchObject({ type: 'h1' })
+    expect(r.paragraphs.length).toBeGreaterThan(5)
+    const bodies = r.paragraphs.slice(1)
+    expect(bodies.every((p) => p.type === 'p')).toBe(true)
+    expect(Math.max(...bodies.map((p) => p.text.length))).toBeLessThanOrEqual(520)
+    // 拆开之后一个字都不能丢
+    expect(bodies.map((p) => p.text).join('')).toBe(oneChapter)
   })
 
-  it('只取第一个一级标题当书名，后面的章名不覆盖', () => {
-    const r = parseTxt('第一章 甲\n\n第二章 乙', '书.txt')
+  it('只取第一个一级标题当书名（占位文件名时）', () => {
+    const r = parseTxt('第一章 甲\n\n第二章 乙', '无标题.txt')
     expect(r.title).toBe('第一章 甲')
   })
 

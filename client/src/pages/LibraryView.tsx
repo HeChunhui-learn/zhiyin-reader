@@ -1,10 +1,12 @@
-import { useCallback, useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useRef, useState, type CSSProperties } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { ApiError, api, type BookmarkDto } from '../api/client'
 import { parseFile } from '../features/parse'
 import { cachePut } from '../features/render/imageCache'
 import UserAvatar from '../features/profile/UserAvatar'
 import LineIcon, { type LineIconName } from '../features/brand/LineIcon'
+import { usePointerGlow } from '../features/motion/usePointerGlow'
+import ThemeToggle from '../features/settings/ThemeToggle'
 import { useSession } from '../state/session'
 
 type NavKey = 'all' | 'recent' | 'favorite' | 'bookmarks' | 'offline'
@@ -55,12 +57,17 @@ function shortTitle(title: string, max = 20): string {
 }
 
 export default function LibraryView() {
+  // 书封上那圈跟着光标走的墨晕。只写 CSS 变量、不改 transform，
+  // 免得鼠标一挪卡片就位移，点起来发飘
+  const glow = usePointerGlow()
   const [nav, setNav] = useState<NavKey>('all')
   const [keyword, setKeyword] = useState('')
   const [books, setBooks] = useState<Awaited<ReturnType<typeof api.listDocuments>>['items']>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
   const [stage, setStage] = useState<ImportStage>({ kind: 'idle' })
+  // 有文件被拖到窗口上时，整页变成一张等待落纸的宣纸
+  const [dragging, setDragging] = useState(false)
   /** 正在等读者确认删除的文档；同一时刻只允许一张卡片进入确认态 */
   const [pendingDelete, setPendingDelete] = useState<string | null>(null)
   /** 正在删的那个文档（按钮转"正在删除…"，防重复提交） */
@@ -377,11 +384,7 @@ export default function LibraryView() {
     }
   }
 
-  async function onPickFile(e: React.ChangeEvent<HTMLInputElement>) {
-    const file = e.target.files?.[0]
-    e.target.value = ''
-    if (!file) return
-
+  async function importFile(file: File) {
     setStage({ kind: 'parsing', fileName: file.name })
     try {
       const { payload, summary, imageBlobs } = await parseFile(file)
@@ -428,6 +431,37 @@ export default function LibraryView() {
     }
   }
 
+  async function onPickFile(e: React.ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0]
+    e.target.value = ''
+    if (!file) return
+    await importFile(file)
+  }
+
+  /* ---- 拖文件到窗口任意处就能导入（落纸动画由 CSS 负责） ---- */
+
+  const onDragOver = (e: React.DragEvent) => {
+    if (!e.dataTransfer.types.includes('Files')) return
+    e.preventDefault()
+    e.dataTransfer.dropEffect = 'copy'
+    if (!dragging) setDragging(true)
+  }
+
+  const onDragLeave = (e: React.DragEvent) => {
+    // 在子元素之间移动也会触发 dragleave，只有真的离开整页才算
+    const next = e.relatedTarget as Node | null
+    if (next && e.currentTarget.contains(next)) return
+    setDragging(false)
+  }
+
+  const onDropFile = (e: React.DragEvent) => {
+    e.preventDefault()
+    setDragging(false)
+    const file = e.dataTransfer.files?.[0]
+    if (file) void importFile(file)
+  }
+
+
   /** 当前这一页的组是不是都展开了 —— 决定总开关按钮显示「全部折叠」还是「全部展开」 */
   const allExpanded =
     overview.length > 0 && overview.every((g) => expandedDocs.has(g.docId))
@@ -437,7 +471,19 @@ export default function LibraryView() {
   }
 
   return (
-    <div className="shelf-page">
+    <div
+      className="shelf-page"
+      onDragOver={onDragOver}
+      onDragLeave={onDragLeave}
+      onDrop={onDropFile}
+    >
+      {/* 书架背后的墨点阵：很淡，只在翻书时才看得见 */}
+      {dragging && (
+        <div className="shelf-drop" aria-hidden="true">
+          <span className="shelf-drop-ink" />
+          <span className="shelf-drop-text">松手放进书架</span>
+        </div>
+      )}
       <header className="shelf-topbar">
         <div className="shelf-brand">知音漫卷</div>
         <input
@@ -457,6 +503,7 @@ export default function LibraryView() {
           onChange={onPickFile}
         />
         <div className="shelf-user">
+          <ThemeToggle />
           {/* 右上角的圆形头像：点它进个人主页 */}
           <button
             className="shelf-avatar"
@@ -500,6 +547,11 @@ export default function LibraryView() {
         </aside>
 
         <main className="shelf-main">
+          {/* 纸上的两团墨晕，慢慢漂；纯装饰，不吃点击 */}
+          <div className="shelf-wash" aria-hidden="true">
+            <i />
+            <i />
+          </div>
           {stage.kind !== 'idle' && (
             <div className={'parse-bar' + (stage.kind === 'done' ? ' done' : stage.kind === 'error' ? ' failed' : '')}>
               {stage.kind === 'parsing' && <span>正在解析「{stage.fileName}」…</span>}
@@ -769,7 +821,22 @@ export default function LibraryView() {
             </div>
           )}
 
-          {loading && <div className="shelf-empty">正在加载书架…</div>}
+          {/* 加载态：先摆 8 个墨线格子，一根根"画"出来（B3）。
+              外层仍然是 .shelf-empty，加载提示也还在，只是多了一层骨架 */}
+          {loading && (
+            <div className="shelf-empty shelf-loading">
+              <div className="sk-grid" aria-hidden="true">
+                {Array.from({ length: 8 }).map((_, i) => (
+                  <div className="sk-card" key={i} style={{ animationDelay: `${i * 70}ms` }}>
+                    <span className="sk-cover" />
+                    <span className="sk-line" />
+                    <span className="sk-line sk-line-sm" />
+                  </div>
+                ))}
+              </div>
+              <p className="sk-note">正在加载书架…</p>
+            </div>
+          )}
 
           {!loading && error && (
             <div className="shelf-empty">
@@ -815,10 +882,13 @@ export default function LibraryView() {
 
           {nav !== 'bookmarks' && !loading && !error && books.length > 0 && (
             <div className="book-grid">
-              {books.map((b) => (
+              {books.map((b, i) => (
                 <article
                   key={b.docId}
                   className="book-card"
+                  // 序号给 CSS：书是一本一本落架的，不是整页一起冒出来
+                  style={{ '--i': i } as CSSProperties}
+                  {...glow}
                   // 处于确认删除状态时整卡不再充当"打开这本书"的入口，避免误触跳转
                   onClick={() => {
                     if (pendingDelete !== b.docId) navigate(`/read/${b.docId}`)
@@ -829,6 +899,14 @@ export default function LibraryView() {
                     <b className="book-cover-mark" aria-hidden="true">
                       {b.title.trim().charAt(0) || '书'}
                     </b>
+                    {/* 悬停时从左上扫到右下的一道纸光 */}
+                    <i className="book-cover-sheen" aria-hidden="true" />
+                    {/* 悬停时书封右上角微微翘起，露出底下的纸背（B2） */}
+                    <i className="book-cover-peel" aria-hidden="true" />
+                    {/* 灯下反光：跟着光标走的一团柔光，书封像有涂层 */}
+                    <i className="book-cover-lamp" aria-hidden="true" />
+                    {/* 书脊：左边一道窄窄的暗边，抽出时才显出来 */}
+                    <i className="book-spine" aria-hidden="true" />
                     <span>{b.title}</span>
 
                     {/* 收藏入口所有分类下都给：它只改"这本收没收藏"，

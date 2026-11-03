@@ -3363,3 +3363,2466 @@ button {
   color: var(--muted);
   word-break: break-all;
 }
+
+/* ==========================================================================
+   动效层：宣纸 · 墨点 · 朱印（参考 ThreeUI 的组件语言，用纯 CSS 复刻）
+   --------------------------------------------------------------------------
+   这一节只加"动"的东西，不改上面任何一条布局规则：
+     · 引导页：canvas 墨点阵 + 逐字显形的标题 + 卡片 3D 倾斜 + 朱印落章
+     · 登录页：玻璃反光、输入框墨线、按钮光扫
+     · 书架：书封扫光、光标跟随的墨晕、进度条生长
+     · 播放条：跟读时的声纹与呼吸环
+     · 阅读时长：数字入场、条形从零长出、印章
+   所有动画都不依赖第三方库；系统开了「减少动态效果」时统一关掉（见文末）。
+   ========================================================================== */
+
+:root {
+  /* 墨点阵的墨色。canvas 里读的就是这一个变量，深浅主题各自一份 */
+  --ink-field: 45, 100, 145;
+  --ease-soft: cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+:root[data-theme='dark'] {
+  --ink-field: 130, 178, 230;
+}
+
+/* ------------------------------------------------------------ 关键帧 */
+
+/* 页面整体：从下方轻轻浮上来。用 translate 而不是 transform，
+   免得和卡片自己的 transform（悬停倾斜）抢同一个属性 */
+@keyframes page-in {
+  from {
+    opacity: 0;
+    translate: 0 12px;
+  }
+  to {
+    opacity: 1;
+    translate: 0 0;
+  }
+}
+
+@keyframes rise-in {
+  from {
+    opacity: 0;
+    translate: 0 16px;
+  }
+  to {
+    opacity: 1;
+    translate: 0 0;
+  }
+}
+
+/* 朱印落章：先虚焦压大，再砸下来，最后微微回弹 */
+@keyframes seal-press {
+  0% {
+    opacity: 0;
+    transform: scale(1.75) rotate(-7deg);
+    filter: blur(4px);
+  }
+  55% {
+    opacity: 1;
+    transform: scale(0.93) rotate(1.5deg);
+    filter: blur(0);
+  }
+  76% {
+    transform: scale(1.04) rotate(-0.6deg);
+  }
+  100% {
+    opacity: 0.96;
+    transform: scale(1) rotate(0deg);
+  }
+}
+
+@keyframes seal-sheen {
+  0%,
+  62% {
+    transform: translateX(0) rotate(12deg);
+  }
+  80%,
+  100% {
+    transform: translateX(430%) rotate(12deg);
+  }
+}
+
+@keyframes sheen-sweep {
+  from {
+    transform: rotate(10deg) translateX(0);
+  }
+  to {
+    transform: rotate(10deg) translateX(360%);
+  }
+}
+
+@keyframes figure-sheen {
+  0% {
+    background-position: 130% 0;
+  }
+  55%,
+  100% {
+    background-position: -50% 0;
+  }
+}
+
+@keyframes halo {
+  0%,
+  100% {
+    opacity: 0.32;
+    transform: translate(-50%, -50%) scale(0.88);
+  }
+  50% {
+    opacity: 0.72;
+    transform: translate(-50%, -50%) scale(1.12);
+  }
+}
+
+@keyframes dot-sweep {
+  from {
+    transform: translateX(-110%);
+  }
+  to {
+    transform: translateX(110%);
+  }
+}
+
+@keyframes glare-breathe {
+  0%,
+  100% {
+    opacity: 0.35;
+  }
+  50% {
+    opacity: 0.9;
+  }
+}
+
+@keyframes ink-underline {
+  from {
+    transform: scaleX(0);
+  }
+  to {
+    transform: scaleX(1);
+  }
+}
+
+@keyframes wave-bar {
+  0%,
+  100% {
+    height: 5px;
+    opacity: 0.5;
+  }
+  50% {
+    height: 16px;
+    opacity: 1;
+  }
+}
+
+@keyframes pulse-ring {
+  0% {
+    opacity: 0.65;
+    transform: scale(0.95);
+  }
+  100% {
+    opacity: 0;
+    transform: scale(1.2);
+  }
+}
+
+@keyframes bar-grow {
+  from {
+    transform: scaleX(0);
+  }
+  to {
+    transform: scaleX(1);
+  }
+}
+
+@keyframes scan-line {
+  from {
+    transform: translateX(-30%);
+  }
+  to {
+    transform: translateX(330%);
+  }
+}
+
+@keyframes drawer-in {
+  from {
+    opacity: 0;
+    transform: translateX(18px);
+  }
+  to {
+    opacity: 1;
+    transform: translateX(0);
+  }
+}
+
+/* ------------------------------------------------------------ 通用入场 */
+
+.guide-page,
+.login-page,
+.shelf-page,
+.reader-page {
+  animation: page-in 0.45s var(--ease-soft) both;
+}
+
+/* ------------------------------------------------------------ 逐字显形 */
+
+.ink-text {
+  display: inline-block;
+  white-space: pre-wrap;
+}
+
+.ink-text .ink-char {
+  display: inline-block;
+  /* 笔画占位和真字宽度不同，锁一下字高，换字时行不会跳 */
+  min-width: 0.05em;
+}
+
+/* ------------------------------------------------------------ 朱印 */
+
+.ink-seal {
+  position: relative;
+  display: inline-grid;
+  place-items: center;
+  width: 28px;
+  height: 40px;
+  padding: 3px 0;
+  border-radius: 3px;
+  background: var(--seal);
+  color: #fff;
+  font-family: var(--serif);
+  font-size: 11px;
+  line-height: 1.15;
+  letter-spacing: 1px;
+  writing-mode: vertical-rl;
+  overflow: hidden;
+  box-shadow: 0 4px 12px rgba(150, 40, 25, 0.28);
+  animation: seal-press 0.7s var(--ease-soft) both;
+  pointer-events: none;
+}
+
+.ink-seal-face {
+  position: relative;
+  z-index: 1;
+  mix-blend-mode: soft-light;
+  opacity: 0.92;
+}
+
+.ink-seal-sheen {
+  position: absolute;
+  top: -20%;
+  left: -120%;
+  width: 55%;
+  height: 140%;
+  background: linear-gradient(100deg, transparent, rgba(255, 255, 255, 0.8), transparent);
+  transform: rotate(12deg);
+  animation: seal-sheen 6.5s ease-in-out 1.4s infinite;
+}
+
+/* ------------------------------------------------------------ 引导页 */
+
+.guide-page {
+  position: relative;
+  overflow: hidden;
+}
+
+/* canvas 铺满整页，垫在内容下面，不吃指针 */
+.guide-field {
+  position: absolute;
+  inset: 0;
+  z-index: 0;
+  width: 100%;
+  height: 100%;
+  pointer-events: none;
+}
+
+.guide-stage {
+  position: relative;
+  z-index: 1;
+}
+
+.guide-emblem {
+  position: relative;
+}
+
+.guide-emblem-halo {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  width: 78px;
+  height: 78px;
+  border-radius: 50%;
+  background: radial-gradient(circle, var(--accent), transparent 68%);
+  filter: blur(7px);
+  opacity: 0.4;
+  animation: halo 4.4s ease-in-out infinite;
+  pointer-events: none;
+}
+
+.guide-emblem {
+  animation: rise-in 0.55s var(--ease-soft) both;
+}
+
+.guide-subtitle {
+  animation: rise-in 0.5s 0.12s var(--ease-soft) both;
+}
+
+.guide-figure {
+  animation: rise-in 0.6s 0.06s var(--ease-soft) both;
+}
+
+.guide-cards {
+  perspective: 1000px;
+}
+
+.guide-card {
+  position: relative;
+  /* 悬停时按光标位置微微倾斜，静止时归零 */
+  transform: perspective(900px) rotateX(var(--rx, 0deg)) rotateY(var(--ry, 0deg));
+  transition: transform 0.18s ease, box-shadow 0.22s ease, border-color 0.22s ease;
+  animation: rise-in 0.55s var(--ease-soft) both;
+  overflow: hidden;
+}
+
+.guide-card:hover {
+  transform: perspective(900px) translateY(-4px) rotateX(var(--rx, 0deg)) rotateY(var(--ry, 0deg));
+  box-shadow: 0 18px 34px rgba(30, 55, 85, 0.14);
+}
+
+/* 跟着光标走的一团墨晕 */
+.guide-card-glow {
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  opacity: 0;
+  transition: opacity 0.28s ease;
+  pointer-events: none;
+  background: radial-gradient(
+    200px 150px at var(--gx, -999px) var(--gy, -999px),
+    rgba(45, 100, 145, 0.16),
+    transparent 72%
+  );
+}
+
+.guide-card:hover .guide-card-glow {
+  opacity: 1;
+}
+
+.guide-dots {
+  animation: rise-in 0.5s 0.3s var(--ease-soft) both;
+}
+
+.guide-actions {
+  animation: rise-in 0.5s 0.38s var(--ease-soft) both;
+}
+
+.guide-hint {
+  animation: rise-in 0.5s 0.46s var(--ease-soft) both;
+}
+
+.guide-dot {
+  position: relative;
+  overflow: hidden;
+  cursor: pointer;
+  transition: width 0.25s var(--ease-soft), background 0.25s ease;
+}
+
+.guide-dot-fill {
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.9), transparent);
+  animation: dot-sweep 2.2s linear infinite;
+}
+
+/* 图片上缓慢扫过的一道高光，让静态照片有"雾在动"的感觉 */
+.guide-figure-sheen {
+  position: absolute;
+  inset: 0;
+  z-index: 1;
+  pointer-events: none;
+  background: linear-gradient(
+    105deg,
+    transparent 34%,
+    rgba(255, 255, 255, 0.16) 48%,
+    transparent 62%
+  );
+  background-size: 220% 100%;
+  animation: figure-sheen 9s ease-in-out infinite;
+}
+
+.guide-figure-hint {
+  position: absolute;
+  right: 14px;
+  top: 14px;
+  z-index: 2;
+  padding: 4px 10px;
+  border-radius: 999px;
+  background: rgba(10, 22, 34, 0.42);
+  color: rgba(255, 255, 255, 0.88);
+  font-size: 11px;
+  letter-spacing: 0.12em;
+  opacity: 0;
+  transform: translateY(-4px);
+  transition: opacity 0.25s ease, transform 0.25s ease;
+  backdrop-filter: blur(6px);
+  -webkit-backdrop-filter: blur(6px);
+  pointer-events: none;
+}
+
+.guide-figure:hover .guide-figure-hint {
+  opacity: 1;
+  transform: translateY(0);
+}
+
+.guide-seal {
+  position: absolute;
+  right: 16px;
+  bottom: 14px;
+  z-index: 3;
+}
+
+/* 主按钮：一道光每隔几秒扫过去 */
+.guide-actions .btn-primary,
+.login-card .btn-primary {
+  position: relative;
+  overflow: hidden;
+  isolation: isolate;
+}
+
+.guide-actions .btn-primary::after,
+.login-card .btn-primary::after {
+  content: '';
+  position: absolute;
+  top: -60%;
+  left: -40%;
+  width: 32%;
+  height: 220%;
+  background: linear-gradient(100deg, transparent, rgba(255, 255, 255, 0.42), transparent);
+  transform: rotate(16deg) translateX(0);
+  animation: sheen-sweep 5.5s ease-in-out 1.2s infinite;
+  pointer-events: none;
+}
+
+/* ------------------------------------------------------------ 登录页 */
+
+.login-card {
+  position: relative;
+  animation: rise-in 0.5s 0.04s var(--ease-soft) both;
+}
+
+/* 玻璃卡上沿的一道反光：常驻，慢慢呼吸 */
+.login-card-glare {
+  position: absolute;
+  left: 8%;
+  right: 8%;
+  top: 0;
+  height: 1px;
+  background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.95), transparent);
+  animation: glare-breathe 5.5s ease-in-out infinite;
+  pointer-events: none;
+}
+
+.login-card-glare::after {
+  content: '';
+  position: absolute;
+  left: -8%;
+  right: -8%;
+  top: 0;
+  height: 110px;
+  background: radial-gradient(58% 100% at 50% 0, rgba(45, 100, 145, 0.09), transparent 72%);
+}
+
+.tab {
+  position: relative;
+  transition: color 0.2s ease, box-shadow 0.25s ease;
+}
+
+/* 选中页签底下晕开的一小片光，不是第二条横线 */
+.tab.active::after {
+  content: '';
+  position: absolute;
+  left: 50%;
+  bottom: -1px;
+  width: 64%;
+  height: 7px;
+  transform: translateX(-50%);
+  background: radial-gradient(50% 100% at 50% 100%, rgba(45, 100, 145, 0.5), transparent 72%);
+  pointer-events: none;
+}
+
+/* 输入框：聚焦时从中间拉开一条墨线 */
+.login-card .field {
+  position: relative;
+}
+
+.login-card .field::after {
+  content: '';
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  height: 2px;
+  border-radius: 2px;
+  background: linear-gradient(90deg, transparent, var(--primary), transparent);
+  transform: scaleX(0);
+  transform-origin: 50% 50%;
+  pointer-events: none;
+}
+
+.login-card .field:focus-within::after {
+  animation: ink-underline 0.42s var(--ease-soft) both;
+}
+
+.login-card .input {
+  transition: border-color 0.18s ease, box-shadow 0.22s ease, background 0.18s ease;
+}
+
+.login-card .field:focus-within .input,
+.login-card .input:focus {
+  border-color: var(--primary);
+  box-shadow: 0 0 0 3px rgba(45, 100, 145, 0.13), 0 6px 18px rgba(45, 100, 145, 0.1);
+}
+
+.login-figure img {
+  transition: transform 0.8s var(--ease-soft);
+}
+
+.login-figure:hover img {
+  transform: scale(1.045);
+}
+
+/* ------------------------------------------------------------ 书架 */
+
+.guide-page .btn,
+.book-card,
+.stat-card {
+  will-change: transform;
+}
+
+.book-card {
+  position: relative;
+}
+
+/* 光标处晕开的一团墨 —— 只写变量，不动布局 */
+.book-card::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  z-index: 5;
+  border-radius: inherit;
+  opacity: 0;
+  transition: opacity 0.26s ease;
+  pointer-events: none;
+  background: radial-gradient(
+    240px 170px at var(--gx, -999px) var(--gy, -999px),
+    rgba(45, 100, 145, 0.13),
+    transparent 72%
+  );
+}
+
+.book-card:hover::after {
+  opacity: 1;
+}
+
+/* 书封上扫过的一道纸光 */
+.book-cover {
+  position: relative;
+}
+
+.book-cover-sheen {
+  position: absolute;
+  top: -30%;
+  left: -60%;
+  z-index: 2;
+  width: 42%;
+  height: 160%;
+  background: linear-gradient(100deg, transparent, rgba(255, 255, 255, 0.32), transparent);
+  transform: rotate(10deg);
+  opacity: 0;
+  pointer-events: none;
+}
+
+.book-card:hover .book-cover-sheen {
+  opacity: 1;
+  animation: sheen-sweep 1.05s var(--ease-soft) both;
+}
+
+/* 首字淡墨：悬停时轻轻托起来一点 */
+.book-cover-mark {
+  transition: transform 0.5s var(--ease-soft), color 0.4s ease;
+}
+
+.book-card:hover .book-cover-mark {
+  transform: translateY(-6px);
+  color: rgba(255, 255, 255, 0.11);
+}
+
+/* 进度条：进场时从零长出来，跑满后再走一道细光 */
+.book-progress-fill {
+  transform-origin: left center;
+  position: relative;
+  overflow: hidden;
+  animation: bar-grow 0.8s var(--ease-soft) both;
+}
+
+.book-progress-fill::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.55), transparent);
+  animation: dot-sweep 2.8s linear infinite;
+}
+
+/* 导入解析中：进度条上一条来回扫的墨线 */
+.parse-bar:not(.done):not(.failed) {
+  position: relative;
+  overflow: hidden;
+}
+
+.parse-bar:not(.done):not(.failed)::after {
+  content: '';
+  position: absolute;
+  left: 0;
+  bottom: 0;
+  width: 30%;
+  height: 2px;
+  border-radius: 2px;
+  background: linear-gradient(90deg, transparent, var(--primary), transparent);
+  animation: scan-line 1.8s ease-in-out infinite;
+  pointer-events: none;
+}
+
+/* ------------------------------------------------------------ 播放条 */
+
+.pb-btn {
+  transition: background 0.18s ease, box-shadow 0.2s ease, transform 0.16s ease;
+}
+
+.pb-btn-main {
+  position: relative;
+}
+
+/* 跟读中：按钮外围一圈一圈荡开的呼吸环 */
+.pb-btn-main.is-playing::after {
+  content: '';
+  position: absolute;
+  inset: -4px;
+  border: 1px solid rgba(45, 100, 145, 0.55);
+  border-radius: 13px;
+  animation: pulse-ring 1.7s ease-out infinite;
+  pointer-events: none;
+}
+
+.pb-wave {
+  display: flex;
+  align-items: flex-end;
+  gap: 2px;
+  height: 18px;
+  margin-left: 4px;
+}
+
+.pb-wave i {
+  display: block;
+  width: 3px;
+  border-radius: 2px;
+  background: var(--primary);
+  animation: wave-bar 1s ease-in-out infinite;
+}
+
+.pb-wave i:nth-child(2) {
+  animation-delay: 0.14s;
+}
+
+.pb-wave i:nth-child(3) {
+  animation-delay: 0.28s;
+}
+
+.pb-wave i:nth-child(4) {
+  animation-delay: 0.42s;
+}
+
+.pb-wave i:nth-child(5) {
+  animation-delay: 0.56s;
+}
+
+/* ------------------------------------------------------------ 阅读时长 */
+
+.stat-seal {
+  align-self: center;
+  margin-left: 10px;
+}
+
+.stat-card {
+  transition: transform 0.22s ease, box-shadow 0.22s ease;
+}
+
+.stat-card:hover {
+  transform: translateY(-3px);
+  box-shadow: 0 20px 40px rgba(30, 45, 65, 0.12);
+}
+
+.stat-value {
+  animation: rise-in 0.6s 0.08s var(--ease-soft) both;
+}
+
+.stat-book-fill {
+  transform-origin: left center;
+  animation: bar-grow 0.9s var(--ease-soft) both;
+}
+
+.stat-book:nth-child(2) .stat-book-fill {
+  animation-delay: 0.05s;
+}
+
+.stat-book:nth-child(3) .stat-book-fill {
+  animation-delay: 0.1s;
+}
+
+.stat-book:nth-child(4) .stat-book-fill {
+  animation-delay: 0.15s;
+}
+
+.stat-book:nth-child(5) .stat-book-fill {
+  animation-delay: 0.2s;
+}
+
+/* ------------------------------------------------------------ 抽屉 */
+
+.toc-panel.drawer-right {
+  animation: drawer-in 0.32s var(--ease-soft) both;
+}
+
+/* ------------------------------------------------------------ 减少动态效果 */
+
+/*
+ * 系统级的无障碍开关优先于一切装饰：全部动画压到一帧、过渡直接到位。
+ * InkField 与 InkText 在 JS 里也各自判断了这个开关，这里是兜底。
+ */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.001ms !important;
+    animation-delay: 0ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.001ms !important;
+  }
+}
+
+/* ==========================================================================
+   微调：按截图复核后收的几处（都只调数值，不改结构）
+   ========================================================================== */
+
+/* 朱印略收一号，扫光收窄、压淡 —— 原来的高光在 26px 宽里像一道划痕 */
+.ink-seal {
+  width: 26px;
+  height: 37px;
+  font-size: 10.5px;
+  letter-spacing: 0.5px;
+  border-radius: 2px;
+}
+
+.ink-seal-sheen {
+  left: -150%;
+  width: 38%;
+  background: linear-gradient(100deg, transparent, rgba(255, 255, 255, 0.46), transparent);
+}
+
+/* 统计页顶栏那枚印章比引导页的小一档，免得压过标题 */
+.stat-seal {
+  width: 24px;
+  height: 34px;
+  font-size: 10px;
+}
+
+/* 跟读：正在读的那一句，墨晕会跟着呼吸，幅度压得很低，不抢字 */
+.doc-p .sent {
+  transition: background-color 0.16s ease, box-shadow 0.32s ease;
+}
+
+.doc-p .sent-active {
+  animation: sent-breathe 2.8s ease-in-out infinite;
+}
+
+@keyframes sent-breathe {
+  0%,
+  100% {
+    box-shadow: 0 0 0 2px var(--hl), 0 3px 10px rgba(45, 100, 145, 0.06);
+  }
+  50% {
+    box-shadow: 0 0 0 2px var(--hl), 0 6px 20px rgba(45, 100, 145, 0.2);
+  }
+}
+
+/* 声纹挪进主按钮里：白色细条，跟着「跟读 / 暂停」的字走，高度收小一号 */
+.pb-btn-main {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.pb-wave {
+  height: 13px;
+  margin-left: 0;
+}
+
+.pb-wave i {
+  width: 2.5px;
+  background: currentColor;
+  opacity: 0.9;
+  animation-name: wave-bar-sm;
+}
+
+@keyframes wave-bar-sm {
+  0%,
+  100% {
+    height: 4px;
+    opacity: 0.55;
+  }
+  50% {
+    height: 12px;
+    opacity: 1;
+  }
+}
+
+/* 呼吸环原来用负 inset，会被播放条自己的圆角裁掉，改成贴着按钮内壁画 */
+.pb-btn-main.is-playing::after {
+  inset: 0;
+  border: 1px solid rgba(255, 255, 255, 0.5);
+  border-radius: 11px;
+}
+
+/* 按钮上那道扫光压淡一点：原来在深蓝底上像一块硬边色斑 */
+.guide-actions .btn-primary::after,
+.login-card .btn-primary::after {
+  left: -55%;
+  width: 26%;
+  background: linear-gradient(100deg, transparent, rgba(255, 255, 255, 0.3), transparent);
+}
+
+/* ============================================================
+   第二轮动效：纸上落墨（A3 A5 A6 A1 A2 A7 A8 A4）+ 各页细节（B1–B7）
+   只加视觉，不动任何布局尺寸
+   ============================================================ */
+
+/* 墨色拆成三个空格分隔的数：方便在渐变和 SVG 里带透明度用 */
+:root {
+  --ink-rgb: 45 100 145;
+  --paper-rgb: 251 249 244;
+  --guide-light-a: rgba(255, 245, 222, 0.9);
+  --guide-light-b: rgba(208, 228, 243, 0.62);
+}
+
+[data-theme='dark'] {
+  --ink-rgb: 130 178 230;
+  --paper-rgb: 23 26 31;
+  --guide-light-a: rgba(126, 158, 205, 0.16);
+  --guide-light-b: rgba(80, 118, 168, 0.14);
+}
+
+/* ------------------------------------------------------------ A3 三层墨山 */
+
+.guide-peaks {
+  position: absolute;
+  inset: auto 0 0 0;
+  z-index: 1;
+  height: min(54vh, 430px);
+  pointer-events: none;
+  --px: 0;
+  --py: 0;
+}
+
+.guide-peaks svg {
+  display: block;
+  width: 100%;
+  height: 100%;
+}
+
+/* 越"近"的层位移越大，才有景深 */
+.peak-far {
+  transform: translate3d(calc(var(--px) * 6px), calc(var(--py) * 2px), 0);
+}
+
+.peak-mid {
+  transform: translate3d(calc(var(--px) * 16px), calc(var(--py) * 5px), 0);
+}
+
+.peak-near {
+  transform: translate3d(calc(var(--px) * 30px), calc(var(--py) * 9px), 0);
+}
+
+.peak-far path {
+  fill: rgb(var(--ink-rgb) / 0.08);
+}
+
+.peak-mid path {
+  fill: rgb(var(--ink-rgb) / 0.13);
+}
+
+.peak-near path {
+  fill: rgb(var(--ink-rgb) / 0.19);
+}
+
+/* 山腰的雾：把三层隔开，墨色才分层 */
+.peak-mist ellipse {
+  fill: rgb(var(--paper-rgb) / 0.6);
+  filter: blur(16px);
+}
+
+/* ------------------------------------------------------------ A5 纸面的光 */
+
+.guide-light {
+  position: absolute;
+  inset: -22% -12% auto -12%;
+  z-index: 2;
+  height: 80%;
+  pointer-events: none;
+  background:
+    radial-gradient(56% 48% at 66% 2%, var(--guide-light-a), transparent 72%),
+    radial-gradient(40% 38% at 16% 8%, var(--guide-light-b), transparent 76%);
+  animation: light-drift 28s ease-in-out infinite alternate;
+  will-change: transform, opacity;
+}
+
+@keyframes light-drift {
+  0% {
+    transform: translate3d(-2%, -1%, 0) scale(1);
+    opacity: 0.85;
+  }
+  50% {
+    transform: translate3d(1.5%, 1%, 0) scale(1.05);
+    opacity: 1;
+  }
+  100% {
+    transform: translate3d(3%, -0.5%, 0) scale(1.02);
+    opacity: 0.9;
+  }
+}
+
+/* 四周的暗角：慢慢呼吸，画面就不会是"死"的 */
+.guide-vignette {
+  position: absolute;
+  inset: 0;
+  z-index: 2;
+  pointer-events: none;
+  background: radial-gradient(120% 92% at 50% 46%, transparent 56%, rgba(52, 74, 98, 0.14) 100%);
+  animation: vignette-breathe 9s ease-in-out infinite;
+}
+
+[data-theme='dark'] .guide-vignette {
+  background: radial-gradient(120% 92% at 50% 46%, transparent 44%, rgba(4, 8, 14, 0.62) 100%);
+}
+
+@keyframes vignette-breathe {
+  0%,
+  100% {
+    opacity: 0.55;
+  }
+  50% {
+    opacity: 1;
+  }
+}
+
+/* 极淡的纸纹，横竖两组细线错着走，凑出宣纸的织理 */
+.guide-grain {
+  position: absolute;
+  inset: 0;
+  z-index: 2;
+  pointer-events: none;
+  opacity: 0.6;
+  background-image:
+    repeating-linear-gradient(0deg, rgba(140, 128, 108, 0.05) 0 1px, transparent 1px 3px),
+    repeating-linear-gradient(90deg, rgba(140, 128, 108, 0.04) 0 1px, transparent 1px 4px);
+  background-size: 100% 100%, 100% 100%;
+  animation: grain-shift 12s steps(6) infinite;
+}
+
+@keyframes grain-shift {
+  0% {
+    transform: translate3d(0, 0, 0);
+  }
+  50% {
+    transform: translate3d(-1px, 1px, 0);
+  }
+  100% {
+    transform: translate3d(1px, -1px, 0);
+  }
+}
+
+/* 正文抬到光效之上 */
+.guide-stage {
+  z-index: 3;
+}
+
+/* ------------------------------------------------------------ A1 A2 A7 墨迹层 */
+
+.ink-brush {
+  position: absolute;
+  inset: 0;
+  /* 墨和尘都落在"纸上"，也就是卡片、图片这些内容的下层，
+     不然划过去的笔痕会像涂在界面上的一道蓝漆 */
+  z-index: 1;
+  width: 100%;
+  height: 100%;
+  pointer-events: none;
+}
+
+/* 墨滴落下时纸面轻颤一下（用 translate 属性，不跟卡片抢 transform） */
+.guide-stage.is-quake {
+  animation: paper-quake 0.5s var(--ease-soft);
+}
+
+@keyframes paper-quake {
+  0% {
+    translate: 0 0;
+  }
+  18% {
+    translate: -1.4px 1px;
+  }
+  38% {
+    translate: 1.2px -1.3px;
+  }
+  58% {
+    translate: -0.8px 0.7px;
+  }
+  78% {
+    translate: 0.5px -0.4px;
+  }
+  100% {
+    translate: 0 0;
+  }
+}
+
+/* ------------------------------------------------------------ A6 液墨描字 */
+
+.ink-text .ink-char {
+  /* 第几个字 × 间隔 + 整段延迟 */
+  --ink-step: calc(var(--ink-delay, 0ms) + var(--i, 0) * var(--ink-stagger, 110ms));
+  -webkit-mask-image: linear-gradient(
+    102deg,
+    #000 0%,
+    #000 44%,
+    rgba(0, 0, 0, 0.45) 60%,
+    transparent 76%
+  );
+  mask-image: linear-gradient(
+    102deg,
+    #000 0%,
+    #000 44%,
+    rgba(0, 0, 0, 0.45) 60%,
+    transparent 76%
+  );
+  -webkit-mask-size: 280% 100%;
+  mask-size: 280% 100%;
+  -webkit-mask-repeat: no-repeat;
+  mask-repeat: no-repeat;
+  will-change: mask-position;
+  animation: ink-wash var(--ink-dur, 560ms) var(--ease-soft) var(--ink-step) both;
+}
+
+@keyframes ink-wash {
+  from {
+    -webkit-mask-position: 210% 0;
+    mask-position: 210% 0;
+    opacity: 0.18;
+    filter: blur(3px);
+    transform: translateY(0.14em);
+  }
+  to {
+    -webkit-mask-position: 0% 0;
+    mask-position: 0% 0;
+    opacity: 1;
+    filter: blur(0);
+    transform: none;
+  }
+}
+
+/* ------------------------------------------------------------ A8 印章压纸 */
+
+.guide-seal-big {
+  position: absolute;
+  top: 62px;
+  right: 96px;
+  z-index: 2;
+  transform: rotate(-7deg);
+  pointer-events: none;
+  animation: seal-fade 5.8s var(--ease-soft) both;
+}
+
+.guide-seal-big .ink-seal {
+  width: 64px;
+  height: 94px;
+  padding: 7px 0;
+  font-size: 13px;
+  letter-spacing: 2px;
+  border-radius: 4px;
+  box-shadow: 0 10px 26px rgba(150, 40, 25, 0.22);
+}
+
+/* 落章那一瞬间纸被压出的涟漪 */
+.guide-seal-ripple {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  width: 220px;
+  height: 220px;
+  margin: -110px 0 0 -110px;
+  border-radius: 50%;
+  border: 1px solid rgb(var(--ink-rgb) / 0.2);
+  opacity: 0;
+  animation: seal-ripple 1.7s 0.3s var(--ease-soft) both;
+}
+
+@keyframes seal-ripple {
+  0% {
+    transform: scale(0.16);
+    opacity: 0.5;
+  }
+  70% {
+    opacity: 0.12;
+  }
+  100% {
+    transform: scale(1.4);
+    opacity: 0;
+  }
+}
+
+/* 压住之后退成角落里的水印 */
+@keyframes seal-fade {
+  0%,
+  62% {
+    opacity: 0.95;
+  }
+  100% {
+    opacity: 0.13;
+  }
+}
+
+/* ------------------------------------------------------------ A4 切页墨溶 */
+
+.guide-blot {
+  position: absolute;
+  z-index: 5;
+  width: 26px;
+  height: 26px;
+  margin: -13px 0 0 -13px;
+  border-radius: 50%;
+  pointer-events: none;
+  background: radial-gradient(
+    circle,
+    rgb(var(--ink-rgb) / 0.2) 0%,
+    rgb(var(--ink-rgb) / 0.11) 46%,
+    rgb(var(--ink-rgb) / 0) 70%
+  );
+  animation: blot-open 0.74s var(--ease-soft) both;
+}
+
+@keyframes blot-open {
+  0% {
+    transform: scale(0.2);
+    opacity: 0.95;
+  }
+  55% {
+    opacity: 0.55;
+  }
+  100% {
+    transform: scale(58);
+    opacity: 0;
+    filter: blur(2px);
+  }
+}
+
+/* ------------------------------------------------------------ B1 书封侧翻 */
+
+.book-card {
+  /* 给子元素一个透视舞台 */
+  perspective: 900px;
+}
+
+.book-cover {
+  transform-origin: left center;
+  backface-visibility: hidden;
+  transition: transform 0.42s var(--ease-soft), box-shadow 0.42s var(--ease-soft);
+}
+
+.book-card:hover .book-cover {
+  transform: rotateY(-7deg) translateZ(2px);
+  /* 内侧一道书脊的暗，外侧投影拉长 */
+  box-shadow:
+    inset 12px 0 22px -14px rgba(0, 0, 0, 0.55),
+    16px 14px 34px rgba(28, 44, 62, 0.24);
+}
+
+/* ------------------------------------------------------------ B2 书角掀开 */
+
+.book-cover-peel {
+  position: absolute;
+  top: 0;
+  right: 0;
+  z-index: 3;
+  width: 36px;
+  height: 36px;
+  pointer-events: none;
+  background: linear-gradient(
+    225deg,
+    rgba(255, 255, 255, 0.97) 0%,
+    rgba(238, 233, 222, 0.92) 44%,
+    rgba(120, 108, 92, 0.3) 100%
+  );
+  clip-path: polygon(100% 0, 100% 100%, 0 0);
+  transform-origin: 100% 0;
+  transform: scale(0.01) rotate(-8deg);
+  opacity: 0;
+  transition: transform 0.42s var(--ease-soft), opacity 0.3s ease;
+}
+
+/* 翘起来的背面还得有一点折痕的影 */
+.book-cover-peel::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(225deg, transparent 40%, rgba(60, 48, 34, 0.28) 100%);
+}
+
+.book-card:hover .book-cover-peel {
+  transform: scale(1) rotate(0deg);
+  opacity: 1;
+}
+
+/* ------------------------------------------------------------ B3 书架骨架 */
+
+.shelf-loading {
+  display: block;
+  padding: 4px 0 0;
+}
+
+.sk-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(178px, 1fr));
+  gap: 22px;
+}
+
+.sk-card {
+  position: relative;
+  overflow: hidden;
+  padding-bottom: 16px;
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  background: var(--bg);
+  /* 从左上角"画"出来：clip-path 从零面积长到整块 */
+  animation: sk-draw 0.7s var(--ease-soft) both;
+}
+
+@keyframes sk-draw {
+  from {
+    opacity: 0;
+    transform: translateY(8px);
+    clip-path: inset(0 100% 100% 0);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+    clip-path: inset(0 0 0 0);
+  }
+}
+
+.sk-cover {
+  display: block;
+  position: relative;
+  height: 190px;
+  overflow: hidden;
+  background: linear-gradient(160deg, var(--fill), var(--bg-soft));
+}
+
+/* 墨线扫过骨架格 */
+.sk-cover::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  transform: translateX(-100%);
+  background: linear-gradient(100deg, transparent 18%, rgb(var(--ink-rgb) / 0.1) 50%, transparent 82%);
+  animation: sk-sheen 1.7s ease-in-out infinite;
+}
+
+@keyframes sk-sheen {
+  to {
+    transform: translateX(100%);
+  }
+}
+
+.sk-line {
+  display: block;
+  height: 10px;
+  margin: 12px 20px 0;
+  border-radius: 5px;
+  background: var(--bg-soft);
+}
+
+.sk-line-sm {
+  width: 52%;
+  margin-top: 8px;
+}
+
+.sk-note {
+  margin: 22px 0 0;
+  text-align: center;
+  color: var(--muted);
+  font-size: 14px;
+}
+
+/* ------------------------------------------------------------ B4 高亮墨晕 */
+
+/* 新句子亮起来时，底色从字心往外洇，而不是"啪"地换一块 */
+.doc-p .sent-active,
+.reader-content .sent-active {
+  background-image: radial-gradient(
+    ellipse at center,
+    var(--hl) 0%,
+    var(--hl) 60%,
+    rgba(255, 243, 191, 0) 78%
+  );
+  background-repeat: no-repeat;
+  background-position: center;
+  background-size: 0% 100%;
+  animation: sent-wash 0.5s var(--ease-soft) forwards, sent-breathe 2.8s 0.5s ease-in-out infinite;
+}
+
+[data-theme='dark'] .doc-p .sent-active,
+[data-theme='dark'] .reader-content .sent-active {
+  background-image: radial-gradient(
+    ellipse at center,
+    var(--hl) 0%,
+    var(--hl) 60%,
+    rgba(87, 68, 19, 0) 78%
+  );
+}
+
+@keyframes sent-wash {
+  from {
+    background-size: 0% 100%;
+  }
+  to {
+    background-size: 100% 100%;
+  }
+}
+
+/* ------------------------------------------------------------ B6 翻页卷角 */
+
+.reader-page {
+  position: relative;
+}
+
+.page-curl {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  z-index: 11;
+  width: 26%;
+  pointer-events: none;
+  opacity: 0;
+  /* 只有靠近前沿那一侧是实的，后面拖一层极淡的影，纸才像被掀起来 */
+  background:
+    linear-gradient(
+      90deg,
+      rgb(var(--paper-rgb) / 0) 0%,
+      rgb(var(--paper-rgb) / 0.14) 58%,
+      rgb(var(--paper-rgb) / 0.82) 94%,
+      rgb(255 255 255 / 0.95) 100%
+    ),
+    linear-gradient(
+      96deg,
+      rgb(var(--ink-rgb) / 0) 0%,
+      rgb(var(--ink-rgb) / 0.07) 70%,
+      rgb(var(--ink-rgb) / 0.18) 100%
+    );
+  box-shadow: inset 22px 0 34px -30px rgba(28, 44, 62, 0.5);
+  border-radius: 50% 0 0 50% / 100% 0 0 100%;
+}
+
+.page-curl.next {
+  right: 0;
+  animation: curl-next 0.62s var(--ease-soft) both;
+}
+
+.page-curl.prev {
+  left: 0;
+  animation: curl-prev 0.62s var(--ease-soft) both;
+  border-radius: 0 50% 50% 0 / 0 100% 100% 0;
+  background:
+    linear-gradient(
+      270deg,
+      rgb(var(--paper-rgb) / 0) 0%,
+      rgb(var(--paper-rgb) / 0.14) 58%,
+      rgb(var(--paper-rgb) / 0.82) 94%,
+      rgb(255 255 255 / 0.95) 100%
+    ),
+    linear-gradient(
+      264deg,
+      rgb(var(--ink-rgb) / 0) 0%,
+      rgb(var(--ink-rgb) / 0.07) 70%,
+      rgb(var(--ink-rgb) / 0.18) 100%
+    );
+  box-shadow: inset -22px 0 34px -30px rgba(28, 44, 62, 0.5);
+}
+
+@keyframes curl-next {
+  0% {
+    transform: translateX(40%) rotate(-1.6deg) scaleX(0.86);
+    opacity: 0;
+  }
+  16% {
+    opacity: 1;
+  }
+  80% {
+    opacity: 1;
+  }
+  100% {
+    transform: translateX(-330%) rotate(1deg) scaleX(1);
+    opacity: 0;
+  }
+}
+
+@keyframes curl-prev {
+  0% {
+    transform: translateX(-40%) rotate(1.6deg) scaleX(0.86);
+    opacity: 0;
+  }
+  16% {
+    opacity: 1;
+  }
+  80% {
+    opacity: 1;
+  }
+  100% {
+    transform: translateX(330%) rotate(-1deg) scaleX(1);
+    opacity: 0;
+  }
+}
+
+/* ------------------------------------------------------------ B7 墨滴换主题 */
+
+/* 新主题的整页快照被 clip-path 的圆从点击处推开 */
+::view-transition-old(root) {
+  animation: none;
+}
+
+::view-transition-new(root) {
+  animation: theme-ink 0.72s cubic-bezier(0.4, 0, 0.2, 1) both;
+  mix-blend-mode: normal;
+}
+
+@keyframes theme-ink {
+  from {
+    clip-path: circle(0 at var(--theme-x, 50%) var(--theme-y, 50%));
+  }
+  to {
+    clip-path: circle(var(--theme-r, 150vmax) at var(--theme-x, 50%) var(--theme-y, 50%));
+  }
+}
+
+/* ------------------------------------------------------------ 减少动态效果 */
+
+@media (prefers-reduced-motion: reduce) {
+  .ink-text .ink-char,
+  .guide-light,
+  .guide-vignette,
+  .guide-grain,
+  .guide-seal-big,
+  .guide-seal-ripple,
+  .guide-blot,
+  .sk-card,
+  .sk-cover::after,
+  .page-curl {
+    animation: none !important;
+  }
+
+  .guide-stage.is-quake {
+    animation: none !important;
+  }
+
+  .book-cover,
+  .book-cover-peel {
+    transition: none !important;
+  }
+
+  /* 高亮不能因为动画关掉就不见了 */
+  .doc-p .sent-active,
+  .reader-content .sent-active {
+    animation: none !important;
+    background-size: 100% 100%;
+  }
+}
+
+/* ============================================================
+   第三轮：书架落书 + 阅读页（R1–R3）
+   —— 全部只加动效，不动布局与类名
+   ============================================================ */
+
+/* ------------------------------------------------------------ 书架：墨点阵垫底 */
+
+.shelf-page {
+  position: relative;
+  isolation: isolate;
+}
+
+.shelf-topbar,
+.shelf-body {
+  position: relative;
+  z-index: 1;
+}
+
+/* ------------------------------------------------------------ 书一本一本落架 */
+
+.book-card {
+  animation: card-rise 0.52s var(--ease-soft) both;
+  animation-delay: calc(var(--i, 0) * 40ms);
+}
+
+/* 用 translate 属性而不是 transform：悬停的倾斜/位移是 transform，两者互不抢 */
+@keyframes card-rise {
+  from {
+    opacity: 0;
+    translate: 0 14px;
+  }
+  to {
+    opacity: 1;
+    translate: 0 0;
+  }
+}
+
+/* 灯下反光：跟着光标走的一团柔光，书封像有涂层 */
+.book-cover-lamp {
+  position: absolute;
+  inset: 0;
+  z-index: 3;
+  opacity: 0;
+  pointer-events: none;
+  background: radial-gradient(
+    130px circle at var(--gx, -999px) var(--gy, -999px),
+    rgba(255, 255, 255, 0.3),
+    rgba(255, 255, 255, 0.05) 40%,
+    transparent 66%
+  );
+  mix-blend-mode: screen;
+  transition: opacity 0.35s ease;
+}
+
+.book-card:hover .book-cover-lamp {
+  opacity: 1;
+}
+
+/* 书脊：抽出来的时候左缘才有那道暗边 */
+.book-spine {
+  position: absolute;
+  left: 0;
+  top: 0;
+  bottom: 0;
+  z-index: 3;
+  width: 9px;
+  opacity: 0;
+  pointer-events: none;
+  background: linear-gradient(90deg, rgba(0, 0, 0, 0.38), rgba(0, 0, 0, 0.05) 64%, transparent);
+  transition: opacity 0.4s var(--ease-soft);
+}
+
+.book-card:hover .book-spine {
+  opacity: 0.7;
+}
+
+/* ------------------------------------------------------------ 侧栏：当前项的墨条 */
+
+.side-item {
+  position: relative;
+}
+
+.side-item::before {
+  content: '';
+  position: absolute;
+  left: 3px;
+  top: 50%;
+  width: 3px;
+  height: 0;
+  opacity: 0;
+  border-radius: 2px;
+  background: var(--primary);
+  transform: translateY(-50%);
+  transition:
+    height 0.34s var(--ease-soft),
+    opacity 0.3s ease;
+}
+
+.side-item:hover::before {
+  height: 8px;
+  opacity: 0.4;
+}
+
+.side-item.active::before {
+  height: 18px;
+  opacity: 1;
+}
+
+/* ------------------------------------------------------------ 搜索框：一行墨线长出来 */
+
+.shelf-search {
+  background-image: linear-gradient(var(--primary), var(--primary));
+  background-repeat: no-repeat;
+  background-size: 0% 2px;
+  background-position: 0 100%;
+  transition:
+    background-size 0.42s var(--ease-soft),
+    box-shadow 0.3s ease;
+}
+
+.shelf-search:focus {
+  background-size: 100% 2px;
+}
+
+/* ------------------------------------------------------------ 导入按钮：光扫过去 */
+
+.shelf-topbar .btn-primary {
+  position: relative;
+  overflow: hidden;
+  isolation: isolate;
+}
+
+.shelf-topbar .btn-primary::after {
+  content: '';
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: -60%;
+  width: 32%;
+  pointer-events: none;
+  background: linear-gradient(100deg, transparent, rgba(255, 255, 255, 0.45), transparent);
+  transform: skewX(-18deg);
+}
+
+.shelf-topbar .btn-primary:hover::after {
+  animation: sheen-sweep 0.9s var(--ease-soft);
+}
+
+/* ------------------------------------------------------------ 拖文件进来：一张等待落纸的宣纸 */
+
+.shelf-drop {
+  position: fixed;
+  inset: 0;
+  z-index: 90;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  pointer-events: none;
+  background: rgb(var(--paper-rgb) / 0.74);
+  backdrop-filter: blur(2px);
+  animation: drop-in 0.18s ease-out both;
+}
+
+.shelf-drop::before {
+  content: '';
+  position: absolute;
+  inset: 22px;
+  border: 2px dashed rgb(var(--ink-rgb) / 0.32);
+  border-radius: 18px;
+}
+
+.shelf-drop-ink {
+  position: absolute;
+  width: 300px;
+  height: 300px;
+  border-radius: 50%;
+  background: radial-gradient(circle, rgb(var(--ink-rgb) / 0.15), transparent 68%);
+  animation: drop-breathe 2.6s ease-in-out infinite;
+}
+
+.shelf-drop-text {
+  position: relative;
+  font-family: var(--serif);
+  font-size: 26px;
+  letter-spacing: 8px;
+  color: var(--primary);
+}
+
+@keyframes drop-in {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+@keyframes drop-breathe {
+  0%,
+  100% {
+    transform: scale(0.9);
+    opacity: 0.7;
+  }
+  50% {
+    transform: scale(1.06);
+    opacity: 1;
+  }
+}
+
+/* ------------------------------------------------------------ R1 进正文：一道墨自上而下扫过 */
+
+.reader-scan {
+  position: absolute;
+  inset: 0;
+  z-index: 9;
+  pointer-events: none;
+  background: linear-gradient(
+    180deg,
+    transparent 0%,
+    rgb(var(--ink-rgb) / 0.1) 46%,
+    transparent 100%
+  );
+  background-repeat: no-repeat;
+  background-size: 100% 44%;
+  background-position: 50% -60%;
+  animation: reader-scan 1.05s var(--ease-soft) both;
+}
+
+@keyframes reader-scan {
+  from {
+    background-position: 50% -60%;
+    opacity: 0;
+  }
+  18% {
+    opacity: 1;
+  }
+  to {
+    background-position: 50% 160%;
+    opacity: 0;
+  }
+}
+
+.reader-content {
+  animation: content-in 0.6s var(--ease-soft) both;
+}
+
+@keyframes content-in {
+  from {
+    opacity: 0;
+    translate: 0 10px;
+  }
+  to {
+    opacity: 1;
+    translate: 0 0;
+  }
+}
+
+/* ------------------------------------------------------------ R3 跳转落点闪一下 */
+
+.doc-p.para-flash,
+.doc-h1.para-flash,
+.doc-h2.para-flash {
+  animation: para-flash 1.2s var(--ease-soft);
+}
+
+@keyframes para-flash {
+  0% {
+    background-color: rgb(var(--ink-rgb) / 0.13);
+    box-shadow: 0 0 0 8px rgb(var(--ink-rgb) / 0.07);
+    border-radius: 6px;
+  }
+  60% {
+    background-color: rgb(var(--ink-rgb) / 0.04);
+  }
+  100% {
+    background-color: transparent;
+    box-shadow: none;
+  }
+}
+
+/* ------------------------------------------------------------ B4 加强：从字心晕开 */
+
+.doc-p .sent-active {
+  background-image: radial-gradient(
+    ellipse at center,
+    var(--hl) 0%,
+    var(--hl) 58%,
+    rgba(255, 243, 191, 0) 84%
+  );
+  background-repeat: no-repeat;
+  background-size: 0% 100%;
+  animation:
+    sent-wash 0.62s var(--ease-soft) forwards,
+    sent-breathe 2.8s 0.62s infinite;
+}
+
+/* ------------------------------------------------------------ 减少动态效果 */
+
+@media (prefers-reduced-motion: reduce) {
+  .book-card,
+  .reader-scan,
+  .reader-content,
+  .doc-p.para-flash,
+  .shelf-drop,
+  .shelf-drop-ink,
+  .shelf-topbar .btn-primary:hover::after {
+    animation: none !important;
+  }
+
+  .reader-content {
+    opacity: 1;
+    translate: 0 0;
+  }
+
+  .doc-p .sent-active {
+    background-size: 100% 100%, 100% 100%;
+  }
+}
+
+/* 书架纸面：两团缓慢漂移的墨晕（不依赖任何交互就能看见）
+   浅色主题下用中等透明度 + 高斯模糊，保证在宣纸底色上肉眼可辨 */
+
+.shelf-main {
+  position: relative;
+  isolation: isolate;
+  background-color: var(--bg-soft);
+  background-image: radial-gradient(rgba(60, 80, 100, 0.05) 0.7px, transparent 0.7px);
+  background-size: 6px 6px;
+}
+
+.shelf-main > .shelf-wash {
+  position: absolute;
+  inset: 0;
+  z-index: 0;
+  overflow: hidden;
+  pointer-events: none;
+}
+
+.shelf-main > .shelf-wash i {
+  position: absolute;
+  display: block;
+  border-radius: 50%;
+  filter: blur(52px);
+  background: radial-gradient(
+    circle at 50% 50%,
+    rgb(var(--ink-rgb) / 0.3),
+    rgb(var(--ink-rgb) / 0.11) 52%,
+    rgb(var(--ink-rgb) / 0) 74%
+  );
+  animation: wash-drift 26s ease-in-out infinite alternate;
+}
+
+.shelf-main > .shelf-wash i:first-child {
+  width: 720px;
+  height: 520px;
+  left: -150px;
+  top: -130px;
+}
+
+.shelf-main > .shelf-wash i:last-child {
+  width: 560px;
+  height: 420px;
+  right: -130px;
+  bottom: -110px;
+  opacity: 0.85;
+  animation-duration: 34s;
+  animation-direction: alternate-reverse;
+}
+
+@keyframes wash-drift {
+  from {
+    transform: translate3d(0, 0, 0) scale(1);
+  }
+  to {
+    transform: translate3d(240px, 150px, 0) scale(1.16);
+  }
+}
+
+/* 内容压在墨晕之上 */
+.shelf-main > *:not(.shelf-wash) {
+  position: relative;
+  z-index: 1;
+}
+
+/* 暗色下墨晕改成冷调微光，别把夜景照亮 */
+[data-theme='dark'] .shelf-main > .shelf-wash i {
+  background: radial-gradient(
+    circle at 50% 50%,
+    rgb(var(--ink-rgb) / 0.17),
+    rgb(var(--ink-rgb) / 0.06) 54%,
+    rgb(var(--ink-rgb) / 0) 74%
+  );
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .shelf-main > .shelf-wash i {
+    animation: none;
+  }
+}
+
+/* 书封上的光自己会走：每张卡错开，不用悬停也看得见 */
+
+.book-cover-sheen {
+  animation: sheen-idle 8.4s var(--ease-soft) infinite;
+  animation-delay: calc(var(--i, 0) * 0.7s);
+}
+
+@keyframes sheen-idle {
+  0% {
+    opacity: 0;
+    transform: rotate(10deg) translateX(0);
+  }
+  14% {
+    opacity: 0.72;
+  }
+  38% {
+    opacity: 0.72;
+  }
+  56% {
+    opacity: 0;
+    transform: rotate(10deg) translateX(360%);
+  }
+  100% {
+    opacity: 0;
+    transform: rotate(10deg) translateX(360%);
+  }
+}
+
+/* ------------------------------------------------------------ 顶栏昼夜开关 */
+
+.topbar-end {
+  margin-left: auto;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.theme-toggle {
+  display: inline-flex;
+  flex: none;
+  padding: 0;
+  border: none;
+  background: none;
+  border-radius: 999px;
+  cursor: pointer;
+  transition: transform 0.25s var(--ease-soft);
+}
+
+.theme-toggle:hover {
+  transform: translateY(-1px);
+}
+
+.theme-toggle:active {
+  transform: scale(0.96);
+}
+
+.theme-toggle:focus-visible {
+  outline: 2px solid var(--primary);
+  outline-offset: 3px;
+}
+
+.theme-toggle-track {
+  position: relative;
+  display: block;
+  width: 58px;
+  height: 28px;
+  border-radius: 999px;
+  background: linear-gradient(180deg, #edf1f6 0%, #dce2ea 100%);
+  box-shadow:
+    inset 0 1px 3px rgba(28, 44, 62, 0.22),
+    inset 0 0 0 1px rgba(28, 44, 62, 0.06);
+  transition:
+    background 0.5s var(--ease-soft),
+    box-shadow 0.5s var(--ease-soft);
+}
+
+.theme-toggle.is-dark .theme-toggle-track {
+  background: linear-gradient(180deg, #26333f 0%, #151d27 100%);
+  box-shadow:
+    inset 0 1px 4px rgba(0, 0, 0, 0.6),
+    inset 0 0 0 1px rgba(150, 190, 255, 0.14);
+}
+
+.theme-toggle-thumb {
+  position: absolute;
+  top: 3px;
+  left: 3px;
+  width: 22px;
+  height: 22px;
+  display: grid;
+  place-items: center;
+  border-radius: 50%;
+  background: radial-gradient(circle at 34% 28%, #fffdf7 0%, #e7ecf2 72%, #d6dde6 100%);
+  box-shadow:
+    0 2px 5px rgba(28, 44, 62, 0.3),
+    inset 0 0 0 0.5px rgba(255, 255, 255, 0.7);
+  transition:
+    transform 0.5s var(--ease-soft),
+    background 0.5s var(--ease-soft),
+    box-shadow 0.5s var(--ease-soft);
+}
+
+.theme-toggle.is-dark .theme-toggle-thumb {
+  transform: translateX(30px);
+  background: radial-gradient(circle at 34% 28%, #e2ecff 0%, #96aac6 60%, #71849f 100%);
+  box-shadow:
+    0 2px 8px rgba(0, 0, 0, 0.5),
+    0 0 14px rgba(150, 190, 255, 0.4);
+}
+
+.theme-toggle-sun,
+.theme-toggle-moon {
+  /* inset:0 + margin:auto 居中，把 transform 留给旋转过渡 */
+  position: absolute;
+  inset: 0;
+  margin: auto;
+  width: 11px;
+  height: 11px;
+  border-radius: 50%;
+  transition:
+    opacity 0.4s var(--ease-soft),
+    transform 0.55s var(--ease-soft);
+}
+
+/* 日头：一枚小圆点，外套一圈放射状光芒 */
+.theme-toggle-sun {
+  background: #d99524;
+  box-shadow: 0 0 6px rgba(217, 149, 36, 0.55);
+}
+
+.theme-toggle-sun::before {
+  content: '';
+  position: absolute;
+  inset: -4px;
+  border-radius: 50%;
+  background: repeating-conic-gradient(#d99524 0deg 8deg, transparent 8deg 45deg);
+  -webkit-mask: radial-gradient(circle, transparent 0 54%, #000 55%);
+  mask: radial-gradient(circle, transparent 0 54%, #000 55%);
+  opacity: 0.9;
+}
+
+/* 月亮：一个圆 + 内阴影挖出弯月 */
+.theme-toggle-moon {
+  background: transparent;
+  box-shadow: inset -3px -2.5px 0 0 #eaf1ff;
+}
+
+.theme-toggle.is-dark .theme-toggle-sun {
+  opacity: 0;
+  transform: rotate(-80deg) scale(0.4);
+}
+
+.theme-toggle:not(.is-dark) .theme-toggle-moon {
+  opacity: 0;
+  transform: rotate(80deg) scale(0.4);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .theme-toggle,
+  .theme-toggle-track,
+  .theme-toggle-thumb,
+  .theme-toggle-sun,
+  .theme-toggle-moon {
+    transition: none;
+  }
+}
+
+/* ------------------------------------------------------------ 书架墨晕加强 */
+
+/* 墨要“染”在纸上：用 multiply 让蓝色压进纸色里，而不是发光的白雾 */
+.shelf-main > .shelf-wash i {
+  mix-blend-mode: multiply;
+}
+
+.shelf-main > .shelf-wash::before,
+.shelf-main > .shelf-wash::after {
+  content: '';
+  position: absolute;
+  border-radius: 50%;
+  filter: blur(44px);
+  mix-blend-mode: multiply;
+  pointer-events: none;
+  background: radial-gradient(
+    circle at 50% 50%,
+    rgb(var(--ink-rgb) / 0.26),
+    rgb(var(--ink-rgb) / 0.09) 54%,
+    transparent 76%
+  );
+  animation: wash-drift 32s ease-in-out infinite alternate;
+}
+
+.shelf-main > .shelf-wash::before {
+  width: 460px;
+  height: 360px;
+  left: 46%;
+  top: 12%;
+  opacity: 0.75;
+  animation-duration: 38s;
+}
+
+.shelf-main > .shelf-wash::after {
+  width: 360px;
+  height: 300px;
+  left: 10%;
+  bottom: 4%;
+  opacity: 0.6;
+  animation-duration: 44s;
+  animation-direction: alternate-reverse;
+}
+
+[data-theme='dark'] .shelf-main > .shelf-wash i,
+[data-theme='dark'] .shelf-main > .shelf-wash::before,
+[data-theme='dark'] .shelf-main > .shelf-wash::after {
+  mix-blend-mode: screen;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .shelf-main > .shelf-wash::before,
+  .shelf-main > .shelf-wash::after {
+    animation: none;
+  }
+}
+
+/* 章节标题也会成为跳转落点，闪一下才看得出“跳到了哪儿” */
+.doc-h1.para-flash,
+.doc-h2.para-flash {
+  border-radius: 6px;
+}
+/* ------------------------------------------------------------ 播放条重排
+
+   原来八样东西挤在一行 66px 里：三个走句按钮、两个下拉、两条提示、
+   序号和收起。字号被压到 12px，下拉框为了放得下音色名拉到 190px 起，
+   整条看起来像工具条而不是「捧着书听」的控制台。
+
+   现在分四段：走句按钮（主按钮最高）｜进度（序号 + 百分比 + 顶部墨线）
+   ｜提示｜设置（靠右）。高度给到 78px，按钮都过 40px，闭着眼也按得准。 */
+
+.playbar {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  height: 78px;
+  padding: 0 16px 0 18px;
+  flex: none;
+}
+
+/* 顶部一条墨线：不占高度，扫一眼就知道读到全文的哪个位置 */
+.playbar > .pb-rail {
+  position: absolute;
+  top: -1px;
+  left: 16px;
+  right: 16px;
+  height: 3px;
+  border-radius: 3px;
+  background: var(--fill);
+  overflow: hidden;
+  pointer-events: none;
+}
+
+.playbar > .pb-rail > i {
+  display: block;
+  height: 100%;
+  border-radius: inherit;
+  background: linear-gradient(90deg, var(--primary), var(--primary-hover));
+  box-shadow: 0 0 8px rgba(45, 100, 145, 0.5);
+  transition: width 0.34s var(--ease-soft);
+}
+
+.pb-transport {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex: none;
+}
+
+.playbar .pb-btn {
+  height: 40px;
+  padding: 0 16px;
+  font-size: 13.5px;
+  line-height: 1;
+  border-radius: 10px;
+}
+
+.playbar .pb-btn.pb-step {
+  min-width: 82px;
+}
+
+.playbar .pb-btn-main {
+  height: 46px;
+  min-width: 112px;
+  justify-content: center;
+  font-size: 14.5px;
+  border-radius: 12px;
+  letter-spacing: 0.04em;
+}
+
+.playbar .pb-btn-main.is-playing::after {
+  border-radius: 12px;
+}
+
+.pb-progress {
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  gap: 1px;
+  min-width: 116px;
+  flex: none;
+}
+
+.pb-progress .pb-counter {
+  margin-left: 0;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text);
+  font-variant-numeric: tabular-nums;
+}
+
+.pb-progress .pb-percent {
+  font-size: 11.5px;
+  letter-spacing: 0.06em;
+  color: var(--muted);
+  font-variant-numeric: tabular-nums;
+}
+
+.pb-flags {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+}
+
+.pb-flags .pb-note {
+  max-width: 200px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  line-height: 1.5;
+}
+
+.pb-options {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  margin-left: auto;
+  flex: none;
+}
+
+.pb-options .pb-field > span {
+  font-size: 12px;
+  letter-spacing: 0.08em;
+  color: var(--muted);
+}
+
+.pb-options .pb-field .select {
+  height: 34px;
+  padding: 0 8px;
+  font-size: 13px;
+}
+
+.pb-options .pb-voice {
+  min-width: 150px;
+  max-width: 210px;
+}
+
+.playbar .pb-collapse {
+  height: 34px;
+  margin-left: 8px;
+  padding: 0 12px;
+  font-size: 12.5px;
+  color: var(--muted);
+}
+
+/* 顶栏的昼夜开关：和几个 ghost 按钮同高，但要更靠右一点，别贴着「同步冲突」 */
+.reader-topbar .theme-toggle {
+  margin-left: 4px;
+  flex: none;
+}
+
+/* 个人主页的「高级」区：一条虚线把不常用的东西隔开 */
+.profile-advanced {
+  margin-top: 20px;
+  padding-top: 16px;
+  border-top: 1px dashed var(--border);
+}
+
+.profile-advanced .profile-hint {
+  margin-top: 8px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .playbar > .pb-rail > i {
+    transition: none;
+  }
+}
+
+/* 播放条细修：禁用态原来是 0.4 透明度，几乎看不见「上一句」还在那儿；
+   两个橙色提示条也压过了按钮，收成药丸、降一号字。 */
+.playbar .pb-btn:not(.pb-btn-main) {
+  color: var(--text);
+}
+
+.playbar .pb-btn:not(.pb-btn-main):hover:not(:disabled) {
+  background: var(--hover);
+}
+
+.playbar .pb-btn:disabled {
+  opacity: 0.55;
+  color: var(--muted);
+  background: var(--bg-soft);
+  border-color: var(--border);
+}
+
+.playbar .pb-note {
+  padding: 2px 9px;
+  border-radius: 999px;
+  font-size: 11.5px;
+  letter-spacing: 0.02em;
+}
+
+.playbar .pb-collapse {
+  color: var(--muted);
+}
+
+.playbar .pb-collapse:hover:not(:disabled) {
+  color: var(--text);
+}
+
+/* 点完按钮鼠标还停在上面，主按钮不能被 hover 底色吃掉渐变 */
+.playbar .pb-btn-main {
+  color: #fff;
+}
+
+.playbar .pb-btn-main:hover:not(:disabled) {
+  background: linear-gradient(180deg, var(--primary-hover), var(--primary-dark));
+  color: #fff;
+}
+
+/* ------------------------------------------------------------ 登录页重做
+
+   左栏原来是一块平涂的深蓝 + 一层 0.35 透明度的横条纹当"质感"，
+   在 1440 宽的屏上看就是四条灰带，既不像纸也不像夜。
+   现在：底子上两团冷暖不同的光慢慢漂，上面铺一层会随鼠标起涟漪的墨点阵，
+   纹理换成真正的点状颗粒，横条纹去掉。右栏加一团从顶上漏下来的光。 */
+
+.login-brand::before {
+  content: '';
+  position: absolute;
+  inset: -22%;
+  z-index: 0;
+  pointer-events: none;
+  background:
+    radial-gradient(520px 400px at 24% 20%, rgba(132, 172, 226, 0.3), transparent 66%),
+    radial-gradient(480px 360px at 82% 76%, rgba(94, 138, 194, 0.24), transparent 68%);
+  filter: blur(16px);
+  animation: brand-drift 22s ease-in-out infinite alternate;
+}
+
+.login-brand::after {
+  background-image: radial-gradient(rgba(255, 255, 255, 0.1) 0.6px, transparent 0.6px);
+  background-size: 5px 5px;
+  opacity: 0.5;
+  animation: grain-shift 14s steps(6) infinite;
+}
+
+@keyframes brand-drift {
+  from {
+    transform: translate3d(-2.5%, -1.5%, 0) scale(1);
+  }
+  to {
+    transform: translate3d(3.5%, 2.5%, 0) scale(1.08);
+  }
+}
+
+.login-field {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  z-index: 0;
+  opacity: 0.55;
+  pointer-events: none;
+  /* 深色底上要用淡蓝的墨，写死颜色比继承 --ink-field 稳 */
+  --ink-field: 205, 224, 255;
+}
+
+/* 左栏的文字和图都压在墨点阵之上 */
+.login-brand > :not(.login-field) {
+  position: relative;
+  z-index: 1;
+}
+
+.login-panel {
+  position: relative;
+  overflow: hidden;
+}
+
+.login-panel::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  background: radial-gradient(640px 480px at 72% 4%, rgba(45, 100, 145, 0.1), transparent 68%);
+  animation: panel-light 16s ease-in-out infinite alternate;
+}
+
+@keyframes panel-light {
+  from {
+    opacity: 0.55;
+    transform: translate3d(-2%, -1%, 0);
+  }
+  to {
+    opacity: 1;
+    transform: translate3d(2%, 2%, 0);
+  }
+}
+
+/* 卡片不再是一块死白：悬停时边框透出一点墨蓝，投影沉下去 */
+.login-card {
+  transition: box-shadow 0.42s var(--ease-soft), border-color 0.42s var(--ease-soft);
+}
+
+.login-card:hover {
+  border-color: rgba(45, 100, 145, 0.26);
+  box-shadow: 0 30px 70px rgba(30, 45, 65, 0.14), 0 1px 2px rgba(30, 45, 65, 0.06);
+}
+
+.login-card .input:focus {
+  border-color: rgba(45, 100, 145, 0.5);
+  box-shadow: 0 0 0 3px rgba(45, 100, 145, 0.1);
+}
+
+/* 第三方登录按钮：鼠标过去时从左边漫上来一层极淡的墨 */
+.login-card .btn-ghost {
+  position: relative;
+  overflow: hidden;
+  isolation: isolate;
+}
+
+.login-card .btn-ghost::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  z-index: -1;
+  border-radius: inherit;
+  background: radial-gradient(220px 90px at 18% 120%, rgba(45, 100, 145, 0.14), transparent 70%);
+  opacity: 0;
+  transition: opacity 0.42s var(--ease-soft);
+}
+
+.login-card .btn-ghost:hover::after {
+  opacity: 1;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .login-brand::before,
+  .login-brand::after,
+  .login-panel::before {
+    animation: none;
+  }
+}
+
+/* 高级区跟着上面的表单左对齐（.profile-card 里继承了居中） */
+.profile-advanced {
+  text-align: left;
+}
+
+.profile-advanced .profile-hint {
+  margin-top: 6px;
+}
+
+/* 深色底上墨点再多一点存在感 */
+.login-field {
+  opacity: 0.7;
+}

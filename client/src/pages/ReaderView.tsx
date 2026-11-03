@@ -39,6 +39,7 @@ import PlaybackBar from './PlaybackBar'
 import ConflictDialog from './ConflictDialog'
 import BookmarkPanel from './BookmarkPanel'
 import ReaderSettingsPanel from './ReaderSettingsPanel'
+import ThemeToggle from '../features/settings/ThemeToggle'
 
 /**
  * 翻页模式下前后两屏的重叠量（像素）。
@@ -63,6 +64,12 @@ export default function ReaderView() {
 
   const [tocOpen, setTocOpen] = useState(false)
   const [marksOpen, setMarksOpen] = useState(false)
+  /**
+   * 翻页时扫过的那一页（B6）。key 自增，换一次就把元素重挂一遍，
+   * 动画从头播 —— 连点两下右侧也能连着卷两次。
+   */
+  const [curl, setCurl] = useState<{ dir: 'next' | 'prev'; key: number } | null>(null)
+  const curlSeq = useRef(0)
   const [settingsOpen, setSettingsOpen] = useState(false)
   /** 背景图的 object URL；空串 = 不画背景 */
   const [bgUrl, setBgUrl] = useState('')
@@ -205,6 +212,17 @@ export default function ReaderView() {
   // 章节标题同时要写进 T_Bookmark.chapter_title 供 B2 的「按章节排序」用，
   // 两套并存只会让默认名跟列表里的分组对不上。
 
+  /** 跳转落点闪一下墨晕（R3）：让人一眼看见"跳到了哪一段" */
+  const [flashPara, setFlashPara] = useState(-1)
+  const flashTimer = useRef(0)
+  const flashAt = useCallback((index: number) => {
+    setFlashPara(index)
+    window.clearTimeout(flashTimer.current)
+    flashTimer.current = window.setTimeout(() => setFlashPara(-1), 1200)
+  }, [])
+
+  useEffect(() => () => window.clearTimeout(flashTimer.current), [])
+
   /** 跳到某一段。窗口化时不能靠 querySelector —— 目标段落可能还没渲染 */
   const gotoParagraph = useCallback(
     (index: number, smooth = true) => {
@@ -218,6 +236,7 @@ export default function ReaderView() {
       // 跳转不走滚动回调（下面是直接操作 scrollTop 的），不在这里补一下的话
       // 目录高亮会停在旧章节，直到读者自己滚一下才更新
       syncActiveToc(index)
+      flashAt(index)
       if (!virtual) {
         root
           .querySelector(`[data-para="${index}"]`)
@@ -227,7 +246,7 @@ export default function ReaderView() {
       root.scrollTo({ top: offsetOf(geom, index), behavior: smooth ? 'smooth' : 'auto' })
       setWin(computeWindow(geom, offsetOf(geom, index), root.clientHeight || 600, index))
     },
-    [virtual, geom, syncActiveToc],
+    [virtual, geom, syncActiveToc, flashAt],
   )
 
 
@@ -395,6 +414,24 @@ export default function ReaderView() {
     return () => window.removeEventListener('keydown', onKey)
   }, [tocOpen, settingsOpen])
 
+  /* 滚动模式下也能"翻页"：PageUp / PageDown 滚一屏，顺手掀一次纸边（B6）。
+     不然卷角只在"点击翻页"这个模式下看得到，很多人一辈子不会去打开它 */
+  useEffect(() => {
+    if (prefs.pageMode !== 'scroll') return
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key !== 'PageDown' && e.key !== 'PageUp') return
+      const root = rootRef.current
+      if (!root) return
+      e.preventDefault()
+      const step = root.clientHeight - PAGE_OVERLAP
+      root.scrollBy({ top: e.key === 'PageDown' ? step : -step, behavior: 'smooth' })
+      curlSeq.current += 1
+      setCurl({ dir: e.key === 'PageDown' ? 'next' : 'prev', key: curlSeq.current })
+    }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  }, [prefs.pageMode])
+
   useEffect(() => {
     if (!tocOpen || activeToc < 0) return
     const panel = tocPanelRef.current
@@ -476,8 +513,16 @@ export default function ReaderView() {
 
       // 用 scrollBy 而不是 gotoParagraph：平滑滚动会自然触发上面那个
       // 节流滚动回调，窗口化零改动继续工作；gotoParagraph 反而会跟动画打架
-      if (x > r.width * 0.7) root.scrollBy({ top: step, behavior: 'smooth' })
-      else if (x < r.width * 0.3) root.scrollBy({ top: -step, behavior: 'smooth' })
+      // 页边卷起的那一下跟滚动同时发生，像真的把纸掀过去了（B6）
+      if (x > r.width * 0.7) {
+        root.scrollBy({ top: step, behavior: 'smooth' })
+        curlSeq.current += 1
+        setCurl({ dir: 'next', key: curlSeq.current })
+      } else if (x < r.width * 0.3) {
+        root.scrollBy({ top: -step, behavior: 'smooth' })
+        curlSeq.current += 1
+        setCurl({ dir: 'prev', key: curlSeq.current })
+      }
     },
     [prefs.pageMode],
   )
@@ -546,6 +591,8 @@ export default function ReaderView() {
 
   return (
     <div className="reader-page">
+      {/* 进入正文时一道极淡的墨自上而下扫过（R1），只播一次 */}
+      <span className="reader-scan" aria-hidden="true" />
       <header className="reader-topbar">
         <button className="btn btn-ghost" onClick={() => navigate('/shelf')}>返回</button>
         <div className="reader-title" title={book.title}>{book.title}</div>
@@ -594,6 +641,8 @@ export default function ReaderView() {
           同步冲突
           {bms.conflicts.length > 0 && <span className="badge">{bms.conflicts.length}</span>}
         </button>
+        {/* 昼夜切换提到顶栏：原来埋在「设置」浮层里，读者要翻两层才够得着 */}
+        <ThemeToggle />
       </header>
 
       <div className="reader-body">
@@ -691,6 +740,9 @@ export default function ReaderView() {
           />
         )}
 
+        {/* 翻页时扫过的一页纸：key 变了就重挂，动画从头播（B6） */}
+        {curl && <span key={curl.key} className={'page-curl ' + curl.dir} aria-hidden="true" />}
+
         <div
           className={'reader-scroll' + (prefs.pageMode === 'paged' ? ' paged' : '')}
           ref={rootRef}
@@ -709,7 +761,11 @@ export default function ReaderView() {
               if (p.type === 'h1' || p.type === 'h2') {
                 const Tag = p.type === 'h1' ? 'h1' : 'h2'
                 return (
-                  <Tag key={p.paraIndex} data-para={p.paraIndex} className={'doc-' + p.type}>
+                  <Tag
+                    key={p.paraIndex}
+                    data-para={p.paraIndex}
+                    className={'doc-' + p.type + (flashPara === p.paraIndex ? ' para-flash' : '')}
+                  >
                     {p.text}
                   </Tag>
                 )
@@ -739,7 +795,11 @@ export default function ReaderView() {
                 )
               }
               return (
-                <p key={p.paraIndex} data-para={p.paraIndex} className="doc-p">
+                <p
+                  key={p.paraIndex}
+                  data-para={p.paraIndex}
+                  className={'doc-p' + (flashPara === p.paraIndex ? ' para-flash' : '')}
+                >
                   {(byPara.get(p.paraIndex) ?? []).map((s) => (
                     <span
                       key={s.sentenceIndex}

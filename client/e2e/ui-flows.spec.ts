@@ -411,7 +411,8 @@ test.describe('阅读界面（ReaderView）', () => {
 
     // 导入回执 + 卡片出现
     await expect(page.locator('.book-card')).toHaveCount(1, { timeout: 30_000 })
-    await expect(page.locator('.book-title')).toContainText('第一章 起')
+    // 书名取文件名（第一章 起 只是章节标题，不再当书名）
+    await expect(page.locator('.book-title')).toContainText(title)
     await expect(page.locator('.tag')).toContainText('TXT')
 
     // 点开这本书，句子真的铺出来（说明解析结果与句子都上传成功了）

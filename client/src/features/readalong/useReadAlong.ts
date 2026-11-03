@@ -145,10 +145,27 @@ export function useReadAlong(docId: string, sentences: Sentence[]): ReadAlongApi
 
     const ac = new AbortController()
     const start = cursorRef.current
+    /** 连续被引擎打断的次数：偶尔一次跳过就好，连续多次说明环境坏了 */
+    let skipped = 0
 
     void (async () => {
       for (let i = start; i < sentences.length; i++) {
         if (ac.signal.aborted) return
+
+        /*
+         * 先把后面几句送去合成，**再**开始念这一句。
+         *
+         * 原来这一步放在 speak 之后：等于等这一句念完才去请求下一句，
+         * 于是每句之间必然空一段「合成时间」（服务端 Kokoro 在 CPU 上合成
+         * 往往比念得还慢，短句要一两秒、长句十几秒），听感就是
+         * 「一句一暂停」。挪到前面之后，播放与合成并行，句间几乎无缝。
+         */
+        if (i + 1 < sentences.length) {
+          engine.preload(
+            sentences.slice(i + 1, i + 4).map((s) => s.text),
+            { voice, rate: rateRef.current },
+          )
+        }
 
         try {
           await engine.speak(
@@ -157,11 +174,31 @@ export function useReadAlong(docId: string, sentences: Sentence[]): ReadAlongApi
             ac.signal,
           )
         } catch (e) {
-          if (ac.signal.aborted || isAbort(e)) return
+          // 我们自己的收尾（换句、切引擎、离开页面）导致的打断：静默退出
+          if (ac.signal.aborted) return
+          /*
+           * 引擎自己报的打断不算失败 —— 跳过这句接着念下一句。
+           *
+           * 原来这里和上面一样直接 return：Chrome 偶发把一句念到一半丢掉
+           * （cancel 竞态、系统语音服务重启），循环就此停摆，而 `playing`
+           * 还留在 true，界面显示"正在播放"却再也没声音。
+           * 读者看到的正是「一句就停，点继续跟读也只念一句」。
+           */
+          if (isAbort(e)) {
+            skipped += 1
+            if (skipped >= 4) {
+              setError('朗读多次被打断，请点「跟读」重新开始。')
+              setPlaying(false)
+              return
+            }
+            continue
+          }
           setError(e instanceof Error ? e.message : '朗读失败，请重试。')
           setPlaying(false)
           return
         }
+
+        skipped = 0
 
         if (ac.signal.aborted) return
 
@@ -171,14 +208,6 @@ export function useReadAlong(docId: string, sentences: Sentence[]): ReadAlongApi
         cursorRef.current = nextIdx
         setCursor(nextIdx)
         setError('')
-
-        // 提前合成后面几句，减少句间停顿（04 §4.1.4：不少于 2 句）
-        if (i + 1 < sentences.length) {
-          engine.preload(
-            sentences.slice(i + 1, i + 4).map((s) => s.text),
-            { voice, rate: rateRef.current },
-          )
-        }
       }
       // 全文念完
       if (!ac.signal.aborted) setPlaying(false)

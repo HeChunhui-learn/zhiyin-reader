@@ -93,3 +93,33 @@ export function applyTheme(theme: ReaderTheme): void {
   el.dataset.theme = theme
   el.style.colorScheme = theme
 }
+
+/**
+ * 换主题时，新主题从某个点像墨滴一样晕开（B7）。
+ *
+ * 用的是浏览器原生的 View Transition：把「变暗/变亮之后的整页」当成一张新快照，
+ * 再用 clip-path 的圆把它从点击处推开。没有 View Transition 的浏览器直接换色，
+ * 不影响任何功能 —— 返回值只是告诉调用方这次有没有真的播动画。
+ *
+ * 必须在 DOM 变更的同一个任务里接管，所以这里同步调用 applyTheme。
+ */
+export function applyThemeWithRipple(theme: ReaderTheme, x?: number, y?: number): boolean {
+  // lib.dom 里有这个方法，但老一点的浏览器运行时不一定实现了
+  if (typeof document.startViewTransition !== 'function') return false
+  if (window.matchMedia('(prefers-reduced-motion: reduce)').matches) return false
+
+  const w = window.innerWidth
+  const h = window.innerHeight
+  const cx = x ?? w / 2
+  const cy = y ?? h / 2
+  // 半径取到最远的那个角，圆扩散完保证不漏边
+  const r = Math.hypot(Math.max(cx, w - cx), Math.max(cy, h - cy))
+
+  const root = document.documentElement
+  root.style.setProperty('--theme-x', `${cx}px`)
+  root.style.setProperty('--theme-y', `${cy}px`)
+  root.style.setProperty('--theme-r', `${Math.ceil(r)}px`)
+
+  document.startViewTransition(() => applyTheme(theme))
+  return true
+}
