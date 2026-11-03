@@ -56,6 +56,8 @@ function shortTitle(title: string, max = 20): string {
 
 export default function LibraryView() {
   const [nav, setNav] = useState<NavKey>('all')
+  /** 手机横向分类条：切分类时把当前项滚到中间，别让"我的书签"半截藏在屏幕外 */
+  const activeSideRef = useRef<HTMLButtonElement | null>(null)
   const [keyword, setKeyword] = useState('')
   const [books, setBooks] = useState<Awaited<ReturnType<typeof api.listDocuments>>['items']>([])
   const [loading, setLoading] = useState(true)
@@ -113,6 +115,12 @@ export default function LibraryView() {
   useEffect(() => {
     if (ready && !user) navigate('/login', { replace: true })
   }, [ready, user, navigate])
+
+  /* 手机横向分类条：切分类时把当前项滚到中间 */
+  useEffect(() => {
+    if (!window.matchMedia('(max-width: 767px)').matches) return
+    activeSideRef.current?.scrollIntoView({ behavior: 'smooth', inline: 'center', block: 'nearest' })
+  }, [nav])
 
   const category = NAV.find((n) => n.key === nav)?.category ?? 'all'
 
@@ -484,6 +492,7 @@ export default function LibraryView() {
           {NAV.map((n) => (
             <button
               key={n.key}
+              ref={nav === n.key ? activeSideRef : undefined}
               className={'side-item' + (nav === n.key ? ' active' : '')}
               onClick={() => setNav(n.key)}
             >

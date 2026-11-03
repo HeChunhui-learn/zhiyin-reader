@@ -3138,6 +3138,16 @@ button {
     border-right: none;
     border-bottom: 1px solid var(--border);
     overflow-x: auto;
+    /* 横向分类条在手机 WebView 里会常驻一条灰色滚动条，隐藏掉，靠滑动操作 */
+    scrollbar-width: none;
+    -ms-overflow-style: none;
+    -webkit-overflow-scrolling: touch;
+    /* 两侧做一点渐隐：切分类时当前项会居中，边缘露出半截文字也不显得"被裁坏" */
+    mask-image: linear-gradient(90deg, transparent 0, #000 16px, #000 calc(100% - 16px), transparent 100%);
+    -webkit-mask-image: linear-gradient(90deg, transparent 0, #000 16px, #000 calc(100% - 16px), transparent 100%);
+  }
+  .shelf-side::-webkit-scrollbar {
+    display: none;
   }
   .side-item {
     flex: none;
@@ -3186,6 +3196,63 @@ button {
   }
   .book-title {
     font-size: 15px;
+  }
+
+  /* ---- 我的书签：手机上行内空间只有两百多像素，三列会挤成竖排 ----
+     每条书签改成「名称 / 章节 / 时间」三行，操作按钮留在右侧 */
+  .marks-overview {
+    padding: 4px 0 24px;
+  }
+  .marks-overview-bar {
+    padding: 2px 0 12px;
+  }
+  .marks-group {
+    padding: 2px 12px 6px;
+    border-radius: 12px;
+  }
+  .marks-group-head {
+    flex-wrap: wrap;
+    gap: 6px 10px;
+  }
+  .marks-row {
+    grid-template-columns: auto minmax(0, 1fr) auto;
+    align-items: start;
+    gap: 8px;
+    padding: 10px 0;
+  }
+  .marks-check {
+    align-self: start;
+    margin-top: 3px;
+  }
+  .marks-row-main {
+    display: flex;
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 3px;
+  }
+  .marks-row-name {
+    width: 100%;
+    white-space: normal;
+    overflow-wrap: anywhere;
+    line-height: 1.5;
+    font-size: 14px;
+  }
+  .marks-row-chapter,
+  .marks-row-time {
+    font-size: 12px;
+    line-height: 1.5;
+  }
+  .marks-row-time {
+    font-variant-numeric: tabular-nums;
+  }
+  .marks-row-acts {
+    align-self: start;
+    margin-top: 1px;
+  }
+  .marks-row-confirm {
+    flex-wrap: wrap;
+    gap: 6px;
+    padding: 6px 8px;
   }
 
   /* ---- 阅读器：外壳铺满，正文两侧留出可读的边距 ---- */

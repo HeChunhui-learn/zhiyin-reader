@@ -16,6 +16,9 @@ export interface VoiceInfo {
   voice: string
   label: string
   lang: string
+  /** Edge 这类在线引擎能直接报性别；Kokoro 的性别来自静态目录 */
+  gender?: 'female' | 'male'
+  chinese?: boolean
 }
 
 export interface SynthResult {
