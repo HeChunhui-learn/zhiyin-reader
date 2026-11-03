@@ -12,3 +12,4 @@ e2e-report/
 playwright-report/
 *.e2e.log
 server/data-e2e/
+.superpowers
