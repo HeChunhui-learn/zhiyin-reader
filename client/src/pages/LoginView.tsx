@@ -5,6 +5,7 @@ import { useSession } from '../state/session'
 import AppLogo from '../features/brand/AppLogo'
 import InkText from '../features/motion/InkText'
 import InkField from '../features/motion/InkField'
+import { hasFinePointer } from '../features/motion/motionEnv'
 import guideMountain from '../assets/guide-mountain.jpg'
 
 type Tab = 'login' | 'register'
@@ -19,6 +20,8 @@ export default function LoginView() {
   const [error, setError] = useState('')
   const { login, register } = useSession()
   const navigate = useNavigate()
+  // 触屏上点阵不会被「划过」，不挂载
+  const finePointer = hasFinePointer()
 
   /** 把服务端的错误码翻成更好懂的提示（密码错、锁定、重复注册等） */
   function friendly(e: unknown): string {
@@ -76,8 +79,8 @@ export default function LoginView() {
   return (
     <div className="login-page">
       <div className="login-brand">
-        {/* 墨点阵：让左栏的夜色里有活的东西在呼吸，鼠标划过会起涟漪 */}
-        <InkField className="login-field" />
+        {/* 墨点阵：让左栏的夜色里有活的东西在呼吸，鼠标划过会起涟漪；触屏不挂 */}
+        {finePointer && <InkField className="login-field" />}
         <div className="login-brand-head">
           <AppLogo size={56} />
           <div>

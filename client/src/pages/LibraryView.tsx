@@ -547,11 +547,6 @@ export default function LibraryView() {
         </aside>
 
         <main className="shelf-main">
-          {/* 纸上的两团墨晕，慢慢漂；纯装饰，不吃点击 */}
-          <div className="shelf-wash" aria-hidden="true">
-            <i />
-            <i />
-          </div>
           {stage.kind !== 'idle' && (
             <div className={'parse-bar' + (stage.kind === 'done' ? ' done' : stage.kind === 'error' ? ' failed' : '')}>
               {stage.kind === 'parsing' && <span>正在解析「{stage.fileName}」…</span>}

@@ -7,7 +7,7 @@ import InkBrush from '../features/motion/InkBrush'
 import InkSeal from '../features/motion/InkSeal'
 import InkText from '../features/motion/InkText'
 import GuidePeaks from '../features/motion/GuidePeaks'
-import { useTilt } from '../features/motion/usePointerGlow'
+import { hasFinePointer } from '../features/motion/motionEnv'
 import guideMountain from '../assets/guide-mountain.jpg'
 
 interface Slide {
@@ -58,7 +58,12 @@ export default function GuidingUI() {
   const pageRef = useRef<HTMLDivElement | null>(null)
   const stageRef = useRef<HTMLDivElement | null>(null)
   const pointerStart = useRef<number | null>(null)
-  const tilt = useTilt(6)
+  /**
+   * 手机上不挂墨迹层：
+   * 手指没有「悬停」，墨点阵、拖墨、山景视差都不会被真正用到，
+   * 却要一直占着 canvas 和指针监听。挂载前就判断，干脆一个都不建。
+   */
+  const finePointer = hasFinePointer()
   const slide = SLIDES[index]
 
   /** 把视口坐标换算成页面内坐标，墨团才知道该从哪儿晕开 */
@@ -102,11 +107,12 @@ export default function GuidingUI() {
 
   return (
     <div className="guide-page" ref={pageRef} onPointerDown={onPagePointerDown}>
-      {/* 宣纸上的墨点阵：跟着光标浮起来，切页时也只画这一层 */}
-      <InkField className="guide-field" />
+      {/* 宣纸上的墨点阵：跟着光标浮起来，切页时也只画这一层。
+          触屏设备不挂：没有光标可跟，白白整屏重绘 */}
+      {finePointer && <InkField className="guide-field" />}
       {/* 三层墨山：鼠标一动就按不同速度错位 */}
-      <GuidePeaks className="guide-peaks" />
-      {/* 纸面的光：斜射暖光、暗角呼吸、极淡纸纹 */}
+      {finePointer && <GuidePeaks className="guide-peaks" />}
+      {/* 纸面的光：斜射暖光、暗角、极淡纸纹（都是静态层） */}
       <div className="guide-light" aria-hidden="true" />
       <div className="guide-vignette" aria-hidden="true" />
       <div className="guide-grain" aria-hidden="true" />
@@ -149,7 +155,6 @@ export default function GuidingUI() {
             draggable={false}
           />
           <div className="guide-figure-shade" aria-hidden="true" />
-          <div className="guide-figure-sheen" aria-hidden="true" />
           <div className="guide-figure-badge">
             <LineIcon name={slide.cards[0].icon} size={26} />
           </div>
@@ -163,9 +168,7 @@ export default function GuidingUI() {
               className="guide-card"
               key={c.title}
               style={{ animationDelay: `${90 + i * 90}ms` }}
-              {...tilt}
             >
-              <span className="guide-card-glow" aria-hidden="true" />
               <div className="guide-card-icon"><LineIcon name={c.icon} size={21} /></div>
               <div className="guide-card-title">{c.title}</div>
               <div className="guide-card-desc">{c.desc}</div>
@@ -180,10 +183,7 @@ export default function GuidingUI() {
               className={'guide-dot' + (i === index ? ' active' : '')}
               aria-label={`第 ${i + 1} 页`}
               onClick={(e) => goTo(i, localOf(e.clientX, e.clientY))}
-            >
-              {/* 当前页的点上压一条走完一圈的进度线 */}
-              {i === index && <span className="guide-dot-fill" aria-hidden="true" />}
-            </button>
+            />
           ))}
         </div>
 
@@ -199,8 +199,8 @@ export default function GuidingUI() {
         <p className="guide-hint">左右滑动或点击圆点切换引导页</p>
       </div>
 
-      {/* 毛笔拖墨 + 墨滴 + 浮尘，盖在最上层，半透明不挡读 */}
-      <InkBrush className="guide-brush" trail splash dust />
+      {/* 毛笔拖墨 + 墨滴，盖在最上层，半透明不挡读（触屏不挂，见上） */}
+      {finePointer && <InkBrush className="guide-brush" trail splash />}
 
       {/* 切页的一团墨：key 变了就重新挂，动画从头播 */}
       {blot && (

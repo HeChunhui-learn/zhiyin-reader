@@ -213,7 +213,7 @@ export default function BookmarkPanel({
   }
 
   return (
-    <aside className="toc-panel">
+    <aside className="toc-panel marks-panel">
       <div className="toc-head toc-head-row">
         <span>书签</span>
         <button

@@ -17,6 +17,7 @@ import {
   totalHeight,
 } from '../features/render/virtualWindow'
 import { tocIndexAt } from '../features/render/toc'
+import { useGoUp } from '../features/app/useGoUp'
 
 /**
  * 超过这个段落数才启用窗口化渲染。
@@ -50,6 +51,8 @@ const PAGE_OVERLAP = 48
 export default function ReaderView() {
   const { docId = '' } = useParams()
   const navigate = useNavigate()
+  // 顶栏的「返回」和手机的系统返回手势走同一条历史，别各退各的
+  const goUp = useGoUp()
   const { user, ready } = useSession()
   const [searchParams] = useSearchParams()
   const jumpPara = searchParams.get('para')
@@ -582,7 +585,7 @@ export default function ReaderView() {
           <p className="error-text">{error || '找不到这篇文档'}</p>
           <div className="shelf-empty-actions">
             <button className="btn btn-primary" onClick={() => void load()}>重试</button>
-            <button className="btn btn-ghost" onClick={() => navigate('/shelf')}>回到书架</button>
+            <button className="btn btn-ghost" onClick={goUp}>回到书架</button>
           </div>
         </div>
       </div>
@@ -594,7 +597,7 @@ export default function ReaderView() {
       {/* 进入正文时一道极淡的墨自上而下扫过（R1），只播一次 */}
       <span className="reader-scan" aria-hidden="true" />
       <header className="reader-topbar">
-        <button className="btn btn-ghost" onClick={() => navigate('/shelf')}>返回</button>
+        <button className="btn btn-ghost" onClick={goUp}>返回</button>
         <div className="reader-title" title={book.title}>{book.title}</div>
         {/* 三个面板互斥：目录是覆盖式抽屉，书签是推开正文的栏，
             设置是浮层，同时开会叠在一起 */}
@@ -711,33 +714,38 @@ export default function ReaderView() {
         )}
 
         {/* 书签栏用 B 迭代的 BookmarkPanel：分页 / 排序 / 拖动重排都在里面，
-            R7 那版是它的前身（只有一份平铺列表 + 行内重命名），功能是它的子集 */}
+            R7 那版是它的前身（只有一份平铺列表 + 行内重命名），功能是它的子集。
+            桌面端它推开正文；窄屏下 CSS 把它改成覆盖式抽屉（.marks-mask 只在窄屏出现），
+            否则 260px 的侧栏会把手机正文挤没 */}
         {marksOpen && (
-          <BookmarkPanel
-            items={bms.items}
-            total={bms.total}
-            page={bms.page}
-            pageSize={bms.pageSize}
-            sort={bms.sort}
-            onSortChange={bms.setSort}
-            onPageChange={bms.setPage}
-            defaultAddName={defaultNameFor(currentParaRef.current)}
-            onAdd={(name) => {
-              const idx = currentParaRef.current
-              void bms.add(
-                anchorAt(idx, ra.cursor),
-                name || defaultNameFor(idx),
-                chapterTitleFor(idx),
-              )
-            }}
-            onRename={(id, name) => void bms.rename(id, name)}
-            onRemove={(id) => void bms.remove(id)}
-            onReorder={(ids) => void bms.reorder(ids)}
-            onJump={(paraIndex) => {
-              gotoParagraph(paraIndex)
-              ra.stopAutoScroll()
-            }}
-          />
+          <>
+            <div className="toc-mask marks-mask" onClick={() => setMarksOpen(false)} aria-hidden="true" />
+            <BookmarkPanel
+              items={bms.items}
+              total={bms.total}
+              page={bms.page}
+              pageSize={bms.pageSize}
+              sort={bms.sort}
+              onSortChange={bms.setSort}
+              onPageChange={bms.setPage}
+              defaultAddName={defaultNameFor(currentParaRef.current)}
+              onAdd={(name) => {
+                const idx = currentParaRef.current
+                void bms.add(
+                  anchorAt(idx, ra.cursor),
+                  name || defaultNameFor(idx),
+                  chapterTitleFor(idx),
+                )
+              }}
+              onRename={(id, name) => void bms.rename(id, name)}
+              onRemove={(id) => void bms.remove(id)}
+              onReorder={(ids) => void bms.reorder(ids)}
+              onJump={(paraIndex) => {
+                gotoParagraph(paraIndex)
+                ra.stopAutoScroll()
+              }}
+            />
+          </>
         )}
 
         {/* 翻页时扫过的一页纸：key 变了就重挂，动画从头播（B6） */}
