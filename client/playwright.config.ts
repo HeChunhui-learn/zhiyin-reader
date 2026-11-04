@@ -3,7 +3,7 @@ import { defineConfig, devices } from '@playwright/test'
 /**
  * Playwright 端到端配置。
  *
- * 这里补的是 docs/02 第 6.1 节明列的**最大缺口**：浏览器真机测试。
+ * 这里补的是 docs/system-develop.md §5.6 列出的**最大缺口**：浏览器真机测试。
  * 前面的 Vitest 用例全部在 Node 里跑（jsdom 都不用），
  * 覆盖不到真实排版、CSS 渲染、滚动流畅度 —— 那几项只有真浏览器能验。
  *
@@ -31,7 +31,7 @@ export default defineConfig({
   ],
   use: {
     baseURL: `http://127.0.0.1:${WEB_PORT}`,
-    // 只做桌面浏览器：CLAUDE.md 明确"第一版只做桌面浏览器，窗口宽度 ≥ 1280px"
+    // 只做桌面浏览器：docs/system-design.md §8 的兼容性约定
     viewport: { width: 1440, height: 900 },
     trace: 'retain-on-failure',
     screenshot: 'only-on-failure',

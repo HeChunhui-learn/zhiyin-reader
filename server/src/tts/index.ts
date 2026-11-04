@@ -3,7 +3,8 @@ import { join } from 'node:path'
 import { SERVER_ROOT } from '../db'
 import { E } from '../errors'
 import { ttsCacheKey } from './cacheKey'
-import { localProvider, type VoiceInfo } from './providers'
+import { edgeProvider } from './edgeProvider'
+import { localProvider, type TtsProvider, type VoiceInfo } from './providers'
 import { KOKORO_VOICES, MISSING_VOICE_NOTE } from './voiceCatalog'
 
 /**
@@ -26,6 +27,15 @@ const PROBE_TTL_MS = 10_000
 
 const BROWSER_ENGINE = 'browser-native'
 
+/**
+ * 当前使用的上游。
+ *
+ * 默认仍是本地 Kokoro（本机开发、既有测试与离线部署都靠它）；
+ * 在 ECS 这种没有 GPU / 没装 Kokoro 的环境里，设 TTS_PROVIDER=edge
+ * 切到微软 Edge 在线语音，客户端不用换包。
+ */
+const provider: TtsProvider = process.env.TTS_PROVIDER === 'edge' ? edgeProvider : localProvider
+
 const FORMAT_MIME: Record<string, string> = {
   mp3: 'audio/mpeg',
   wav: 'audio/wav',
@@ -39,13 +49,13 @@ const FORMAT_MIME: Record<string, string> = {
 
 let probe: { at: number; ok: boolean; voices: VoiceInfo[] } | null = null
 
-async function probeLocal(): Promise<{ ok: boolean; voices: VoiceInfo[] }> {
+async function probeProvider(): Promise<{ ok: boolean; voices: VoiceInfo[] }> {
   const now = Date.now()
   if (probe && now - probe.at < PROBE_TTL_MS) {
     return { ok: probe.ok, voices: probe.voices }
   }
   try {
-    const voices = await localProvider.listVoices()
+    const voices = await provider.listVoices()
     probe = { at: now, ok: true, voices }
     return { ok: true, voices }
   } catch {
@@ -66,13 +76,13 @@ export async function listEngines(): Promise<{
   default: string
   engines: EngineInfo[]
 }> {
-  const { ok, voices } = await probeLocal()
+  const { ok, voices } = await probeProvider()
   return {
-    default: localProvider.id,
+    default: provider.id,
     engines: [
       {
-        engine: localProvider.id,
-        label: localProvider.label,
+        engine: provider.id,
+        label: provider.label,
         available: ok,
         voices: ok ? voices : [],
       },
@@ -116,7 +126,28 @@ export async function listVoices(): Promise<{
   engineAvailable: boolean
   voices: VoiceCatalogItem[]
 }> {
-  const { ok, voices } = await probeLocal()
+  const { ok, voices } = await probeProvider()
+
+  // Edge 的音色是在线目录，不存在"离线包没装"这回事：
+  // 引擎通着就把在线音色全列出来；引擎不通就返回空目录，由 engineAvailable 说明。
+  if (provider.id === edgeProvider.id) {
+    return {
+      engine: provider.id,
+      engineLabel: provider.label,
+      engineAvailable: ok,
+      voices: ok
+        ? voices.map((v) => ({
+            voice: v.voice,
+            label: v.label,
+            lang: v.lang,
+            gender: v.gender,
+            chinese: v.chinese ?? v.lang.toLowerCase().startsWith('zh'),
+            available: true,
+          }))
+        : [],
+    }
+  }
+
   const live = new Set(voices.map((v) => v.voice))
 
   const items: VoiceCatalogItem[] = KOKORO_VOICES.map((v) => {
@@ -148,8 +179,8 @@ export async function listVoices(): Promise<{
   }
 
   return {
-    engine: localProvider.id,
-    engineLabel: localProvider.label,
+    engine: provider.id,
+    engineLabel: provider.label,
     engineAvailable: ok,
     voices: items,
   }
@@ -207,9 +238,20 @@ export async function synthesize(opts: {
     throw E.validation(['engine'])
   }
 
-  const contentType = FORMAT_MIME[format] ?? 'audio/mpeg'
+  /*
+   * 引擎可能只支持有限格式（Edge 只有 mp3 / opus）。
+   * 在碰缓存之前先问引擎要"实际格式"，缓存扩展名与 Content-Type 都以它为准；
+   * 不支持的格式直接 400，不能把 MP3 字节写进 .wav 再按 audio/wav 返回。
+   */
+  const resolved = provider.resolveFormat
+    ? provider.resolveFormat(format)
+    : { format, contentType: FORMAT_MIME[format] ?? 'audio/mpeg' }
+  if (!resolved) throw E.validation(['format'])
+
+  const effectiveFormat = resolved.format
+  const contentType = resolved.contentType
   const key = ttsCacheKey(engine, voice, rate, text)
-  const file = cachePath(key, format)
+  const file = cachePath(key, effectiveFormat)
 
   if (existsSync(file)) {
     return { buffer: readFileSync(file), contentType, cache: 'hit' }
@@ -224,7 +266,7 @@ export async function synthesize(opts: {
 
     let result
     try {
-      result = await localProvider.synthesize(text, voice, rate, format)
+      result = await provider.synthesize(text, voice, rate, effectiveFormat)
     } catch (e) {
       const msg = e instanceof Error ? e.message : String(e)
       if (/timeout|aborted/i.test(msg)) throw E.upstreamTimeout(engine)
@@ -235,7 +277,8 @@ export async function synthesize(opts: {
 
     ensureCacheDir()
     writeFileSync(file, result.buffer)
-    return { buffer: result.buffer, contentType: result.contentType, cache: 'miss' }
+    // 用 resolved 的 contentType，而不是 provider 返回的：缓存命中与未命中必须一致
+    return { buffer: result.buffer, contentType, cache: 'miss' }
   } finally {
     release()
   }

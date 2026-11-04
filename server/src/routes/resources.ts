@@ -10,7 +10,7 @@ import { ApiError, E } from '../errors'
 /**
  * 二进制资源：图片（契约 §4.3 / §5）与原始文件（契约 §4.2）。
  * 落盘到 server/data/，这里模拟"对象存储／CDN"那一层，
- * 前端始终通过服务端取，不直接接触存储（CLAUDE.md 不做的事：不引入对象存储）。
+ * 前端始终通过服务端取，不直接接触存储（AGENTS.md 不做的事：不引入对象存储）。
  */
 
 const IMAGE_DIR = join(SERVER_ROOT, 'data', 'images')

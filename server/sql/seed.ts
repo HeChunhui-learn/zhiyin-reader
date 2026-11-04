@@ -6,7 +6,7 @@
  *   npm run seed -- --force # 先删掉演示用户及其文档再重新灌
  *
  * 段落由"前端解析"得到——本脚本扮演的就是前端解析器上传解析结果的角色
- * （CLAUDE.md 裁决 1：解析在前端，服务端只存）。
+ * （docs/system-design.md §7 裁决 1：解析在前端，服务端只存）。
  */
 import { createHash } from 'node:crypto'
 import { existsSync, mkdirSync, writeFileSync } from 'node:fs'
@@ -95,7 +95,7 @@ const BIG_BOOKMARKS = Array.from({ length: 50 }, (_, i) => {
   return { paraIndex: para, chapterTitle: chapter }
 })
 
-/** 04 §4.3.1 的 content_hash：TXT/Markdown 按归一化后的正文文本算 SHA-256 */
+/** T_Document.content_hash：TXT/Markdown 按归一化后的正文文本算 SHA-256 */
 function contentHash(paras: { text: string }[]): string {
   const normalized = paras
     .map((p) => p.text.replace(/[​-‍﻿]/g, '').trim())

@@ -1,4 +1,4 @@
-/** 解析产物。与接口契约 §4.1 的 paragraphs / imageRefs 对齐。 */
+/** 解析产物。与 docs/system-design.md §5.3 的 paragraphs / imageRefs 对齐。 */
 
 export type ParaType = 'h1' | 'h2' | 'p' | 'img'
 

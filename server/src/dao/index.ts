@@ -5,7 +5,7 @@ import { getDb } from '../db'
  * DataAccessLibrary —— 业务逻辑层访问数据层的唯一入口。
  * 上层不得直接写 SQL，也不得直接持有 better-sqlite3 的连接。
  *
- * R1 只实现骨架需要的这几个方法；R2 起按 04 §4.3.2 的方法清单逐个补齐。
+ * R1 只实现骨架需要的这几个方法；R2 起按数据模型逐个补齐。
  */
 
 /* ------------------------------------------------------------------ 行类型 */
@@ -300,7 +300,7 @@ export class DataAccessLibrary {
     return this.getDocumentById(d.doc_id)!
   }
 
-  /** 04 §4.3.2：级联删除该文档的段落、句子、图片引用、书签与各设备阅读进度 */
+  /** 级联删除该文档的段落、句子、图片引用、书签与各设备阅读进度 */
   deleteDocument(docId: string): boolean {
     // 外键声明了 ON DELETE CASCADE，子表由数据库自动清理
     const r = getDb().prepare('DELETE FROM T_Document WHERE doc_id = ?').run(docId)
@@ -417,7 +417,7 @@ export class DataAccessLibrary {
         params.push(userId)
         break
       case 'offline':
-        // "有本地副本"是纯客户端状态，服务端不可知（材料审查 O21），这里返回空集
+        // "有本地副本"是纯客户端状态，服务端不可知，这里返回空集
         where += ' AND 0'
         break
       default:
@@ -731,7 +731,7 @@ export class DataAccessLibrary {
    * 契约 §7.4：增量拉取。
    *
    * since 用**服务端时间**比较，但拿去比的是 `updated_at`（客户端时间）—— 这正是
-   * 材料审查 E15 指出的问题：删除墓碑若不更新 updated_at，删除事件就永远拉不到。
+   * docs/system-develop.md §4.6 第 3 条 指出的问题：删除墓碑若不更新 updated_at，删除事件就永远拉不到。
    * 所以这里改成比 `updated_at`，而**软删除时会同时刷新 updated_at**
    * （见 routes/bookmarks.ts 的删除实现），保证墓碑也能被增量拉到。
    */

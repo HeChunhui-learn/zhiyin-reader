@@ -1,7 +1,7 @@
 /**
  * 端到端测试的公共设施。
  *
- * 这些用例跑在**真实浏览器**里，补的是 docs/02 第 6.1 节列的最大缺口。
+ * 这些用例跑在**真实浏览器**里，补的是 docs/system-develop.md §5.6 列出的缺口。
  * 与 `client/test/` 下的 Vitest 用例分工明确：
  *   · Vitest —— 纯函数、接口契约、边界值，快且密
  *   · 这里   —— 真实排版、CSS、滚动、点击、多标签页同步，慢但真
@@ -23,7 +23,7 @@ export const DEMO_DOC_ID = 'doc_renjian'
  *
  *  1. `favicon.ico` 的 404 —— index.html 没声明 favicon，浏览器自动去要一个。
  *  2. 401 的 "Failed to load resource" —— accessToken **只存在内存里**
- *     （CLAUDE.md「令牌存放」那一条），refreshToken 在 localStorage。
+ *     （docs/system-develop.md §4.1「令牌存放」），refreshToken 在 localStorage。
  *     所以每次硬导航（page.goto）进已登录页面时，第一批请求必然先吃 401，
  *     再由 SessionProvider 静默换新、重放原请求。这是**设计如此**，
  *     不是缺陷；内容随后正常渲染就是它工作了的证据。

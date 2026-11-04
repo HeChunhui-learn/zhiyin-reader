@@ -94,10 +94,10 @@ export function useReadingTime(docId: string, enabled: boolean): void {
             body: JSON.stringify(body),
             keepalive: true,
           }).catch(() => {
-            void enqueuePending(docId, 'readingTime', body)
+            void enqueuePending(docId, 'readingTime', body, authStore.userId)
           })
         } catch {
-          void enqueuePending(docId, 'readingTime', body)
+          void enqueuePending(docId, 'readingTime', body, authStore.userId)
         }
         return
       }
@@ -108,7 +108,7 @@ export function useReadingTime(docId: string, enabled: boolean): void {
         .catch(() => {
           // 失败就入队等下次补报，并且把量加回去，免得这一段凭空消失
           unsentMsRef.current += ms
-          void enqueuePending(docId, 'readingTime', body)
+          void enqueuePending(docId, 'readingTime', body, authStore.userId)
         })
         .finally(() => {
           inflightRef.current = false
@@ -155,7 +155,7 @@ export function useReadingTime(docId: string, enabled: boolean): void {
      * client_id 是同一个，服务端的唯一索引会把重复的挡掉，补报是安全的。
      */
     const replayPending = async () => {
-      const queued = (await listPending(docId)).filter((p) => p.kind === 'readingTime')
+      const queued = (await listPending(authStore.userId, docId)).filter((p) => p.kind === 'readingTime')
       if (queued.length === 0) return
       const done: string[] = []
       for (const q of queued) {

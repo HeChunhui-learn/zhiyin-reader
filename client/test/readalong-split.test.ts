@@ -8,7 +8,7 @@ import {
 } from '../src/features/readalong/splitSentences'
 
 /**
- * C1 的句子切分规则 R1–R10（依据 .context/08b-句子切分补充.md）。
+ * C1 的句子切分规则 R1–R10（依据 docs/system-design.md §6.3）。
  *
  * 这套用例守着三件在演示现场会直接发作的事：
  *   · 偏移量与 text 必须逐字节一致 —— 不一致的话高亮范围会偏一位（修正 5）

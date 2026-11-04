@@ -5,10 +5,10 @@ import { listEngines, listVoices, synthesize } from '../tts'
 
 /**
  * 契约 §9：TTS 代理。
- * 前端不直接调用第三方服务，一律经这里转发（CLAUDE.md 的硬约束 C7）。
+ * 前端不直接调用第三方服务，一律经这里转发（docs/system-develop.md §4.5）。
  */
 
-/** 单句文本上限。04 §4.1.4 的 R8 会在 200 字处兜底切分，500 已经足够宽松 */
+/** 单句文本上限。docs/system-design.md §6.3 的 R8 会在 200 字处兜底切分，500 已经足够宽松 */
 const MAX_TEXT = 500
 const MIN_RATE = 0.5
 const MAX_RATE = 2.0

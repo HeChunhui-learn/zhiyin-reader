@@ -257,7 +257,7 @@ export interface BookmarkApplyResult {
   version: number
   row?: BookmarkRow
   conflict?: ConflictEnvelope
-  /** keep_both 时新生成的那条记录（服务端分配 id，CLAUDE.md 裁决 3） */
+  /** keep_both 时新生成的那条记录（服务端分配 id，docs/system-design.md §7 裁决 3） */
   extra?: BookmarkRow
 }
 
@@ -322,6 +322,8 @@ export function applyBookmark(
         created_at: occurredAt,
         updated_at: occurredAt,
         deleted_at: null,
+        // B4：离线创建的书签一键同步时也要把章节标题落库
+        chapter_title: payload.chapterTitle ?? null,
       }
       dal.insertBookmark(row)
       return { applied: true, version: 1, row }
@@ -334,7 +336,9 @@ export function applyBookmark(
         anchor_json: JSON.stringify(anchor),
         name: payload.name ?? null,
         updated_at: isDelete ? (payload.deletedAt ?? occurredAt) : occurredAt,
-        // ★ 软删除也要刷新 updated_at，否则墓碑拉不到（材料审查 E15）
+        // undefined 表示这次没传，不能拿 null 覆盖库里已经有的章节标题
+        ...(payload.chapterTitle !== undefined ? { chapter_title: payload.chapterTitle } : {}),
+        // ★ 软删除也要刷新 updated_at，否则墓碑拉不到（docs/system-develop.md §4.6 第 3 条）
         ...(isDelete ? { deleted_at: payload.deletedAt ?? occurredAt } : {}),
       })
       const fresh = dal.getBookmarkById(payload.bookmarkId)!
@@ -348,6 +352,7 @@ export function applyBookmark(
         name: payload.name ?? null,
         updated_at: occurredAt,
         deleted_at: null,
+        ...(payload.chapterTitle !== undefined ? { chapter_title: payload.chapterTitle } : {}),
       })
       const after = dal.getBookmarkById(payload.bookmarkId)!
       return done({
@@ -374,6 +379,8 @@ export function applyBookmark(
         created_at: occurredAt,
         updated_at: occurredAt,
         deleted_at: null,
+        // 本机没传章节时沿用服务端原件，别把已有的章节信息丢掉
+        chapter_title: payload.chapterTitle ?? remote.chapter_title ?? null,
       }
       dal.insertBookmark(copy)
       return done({
