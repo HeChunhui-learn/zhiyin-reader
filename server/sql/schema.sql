@@ -68,15 +68,21 @@ CREATE INDEX IF NOT EXISTS ix_sentence_para
   ON T_Sentence(para_id, sentence_index);
 
 -- (5) 图片资源表 ------------------------------------------------------------
+-- 主键必须是 (doc_id, image_id)，不能只用 image_id：
+-- 客户端算 imageId 时只含「包内路径 + 段落号」，不含 docId（同一份文件重复解析
+-- 结果不变是刻意的）。两本书里都有 images/cover.jpg 时，imageId 必然相同；
+-- 若 image_id 全库唯一，第二本导入会直接撞主键 500。
+-- 图片文件落盘本来就已经按 docId_imageId 隔离，这里把数据库主键对齐。
 CREATE TABLE IF NOT EXISTS T_ImageResource (
-  image_id   TEXT PRIMARY KEY,
+  image_id   TEXT NOT NULL,
   doc_id     TEXT NOT NULL REFERENCES T_Document(doc_id) ON DELETE CASCADE,
   para_index INTEGER NOT NULL,          -- 图片所在的段落位置
   src        TEXT,                      -- 原文里的引用标记
   alt        TEXT,                      -- ★ 补充列：替代文本，契约 §4.1 的 imageRefs 里有这个字段
   cache_key  TEXT,
   local_url  TEXT,
-  remote_url TEXT
+  remote_url TEXT,
+  PRIMARY KEY (doc_id, image_id)
 );
 CREATE INDEX IF NOT EXISTS ix_image_doc
   ON T_ImageResource(doc_id, para_index);

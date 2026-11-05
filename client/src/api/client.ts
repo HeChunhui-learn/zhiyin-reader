@@ -67,6 +67,12 @@ export function apiUrl(path: string): string {
 
 /** 单个请求的超时（毫秒）。超时按网络错误处理，界面给中文提示 */
 const REQUEST_TIMEOUT_MS = 15000
+/**
+ * 语音合成单独放宽超时。
+ * 服务端遇到 Edge 429 会退避重试，单句最坏要十几秒；用 15s 会在
+ * 服务端还在重试时提前断开，客户端只能再发一次，反而加剧限流。
+ */
+const TTS_REQUEST_TIMEOUT_MS = 60000
 
 /**
  * 导入相关请求的超时（R7-4 引入，本次随上传上限一起放宽）。
@@ -716,11 +722,16 @@ export const api = {
     format?: string
     engine?: string
   }) =>
-    requestBinary('/tts/synthesize', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ format: 'mp3', ...body }),
-    }).then((r) => r.blob()),
+    requestBinary(
+      '/tts/synthesize',
+      {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ format: 'mp3', ...body }),
+      },
+      true,
+      TTS_REQUEST_TIMEOUT_MS,
+    ).then((r) => r.blob()),
 
   /* 阅读进度（契约 §6） */
 

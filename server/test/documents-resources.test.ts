@@ -367,12 +367,9 @@ describe('IM-01 ~ IM-11 图片资源（契约 §4.3 / §5）', () => {
   /**
    * 每个用例造一篇独立文档。
    *
-   * ★ 这里刻意让 imageId 逐次不同：真实客户端算出来的 imageId 只由
-   * `src + paraIndex` 决定（client/src/features/parse/markdown.ts:64），
-   * 而 `T_ImageResource.image_id` 是全库主键 —— 两本书里有同名图片时
-   * 第二次导入会撞主键、直接 500。那是**产品缺陷**，单独在
-   * `cross-document-imageid.test.ts` 里如实钉住；这里用唯一 id 隔离掉它，
-   * 免得一个缺陷把整组图片用例全部带崩。
+   * 这里让 imageId 逐次不同只是为了用例之间好排查。跨文档同名图片的主键
+   * 冲突（原 D-T01）已修：`T_ImageResource` 主键改为 `(doc_id, image_id)`，
+   * 回归用例见 `cross-document-imageid.test.ts`。
    */
   let imgSeq = 0
   async function docWithImage() {

@@ -127,8 +127,8 @@ export default function PlaybackBar({ total, ra, onCollapse }: Props) {
             </span>
           )}
           {ra.degraded && (
-            <span className="pb-note" title="服务端的语音合成服务当前不可用">
-              已降级为浏览器发声
+            <span className="pb-note" title="服务端的语音合成服务当前不可用，已改用设备本地语音合成">
+              已降级为设备发声
             </span>
           )}
         </div>

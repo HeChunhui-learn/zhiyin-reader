@@ -9,6 +9,7 @@ import {
   type TtsEngine,
 } from './engines'
 import { readReadAlongPrefs, writeReadAlongPrefs } from './readAlongPrefs'
+import { NATIVE_ENGINE_ID } from './engines/nativeTts'
 
 /**
  * 逐句跟读的编排。
@@ -147,6 +148,20 @@ export function useReadAlong(docId: string, sentences: Sentence[]): ReadAlongApi
     const start = cursorRef.current
     /** 连续被引擎打断的次数：偶尔一次跳过就好，连续多次说明环境坏了 */
     let skipped = 0
+    /**
+     * 云端合成连续失败时，本句改用设备原生 / 浏览器原生念完再继续，
+     * 不把整段跟读停掉。activeEngine 会切换到降级引擎，后续句子继续用它。
+     */
+    let activeEngine: TtsEngine = engine
+    let fallbackEngine: TtsEngine | null = null
+    const pickFallback = (): EngineOption | null => {
+      for (const id of [NATIVE_ENGINE_ID, 'browser-native']) {
+        if (id === activeEngine.id) continue
+        const opt = engineOptions.find((o) => o.id === id && o.available)
+        if (opt) return opt
+      }
+      return null
+    }
 
     void (async () => {
       for (let i = start; i < sentences.length; i++) {
@@ -161,14 +176,14 @@ export function useReadAlong(docId: string, sentences: Sentence[]): ReadAlongApi
          * 「一句一暂停」。挪到前面之后，播放与合成并行，句间几乎无缝。
          */
         if (i + 1 < sentences.length) {
-          engine.preload(
+          activeEngine.preload(
             sentences.slice(i + 1, i + 4).map((s) => s.text),
             { voice, rate: rateRef.current },
           )
         }
 
         try {
-          await engine.speak(
+          await activeEngine.speak(
             sentences[i].text,
             { voice, rate: rateRef.current },
             ac.signal,
@@ -193,9 +208,39 @@ export function useReadAlong(docId: string, sentences: Sentence[]): ReadAlongApi
             }
             continue
           }
-          setError(e instanceof Error ? e.message : '朗读失败，请重试。')
-          setPlaying(false)
-          return
+          /*
+           * 云端合成在重试后仍失败（例如 Edge 429 持续、服务端重启）：
+           * 本句改用设备原生 / 浏览器原生念完，后续继续用它，不停掉整段跟读。
+           */
+          const fallbackOpt = pickFallback()
+          if (fallbackOpt) {
+            fallbackEngine ??= createEngine(fallbackOpt.id, docId, engineOptions)
+            try {
+              await fallbackEngine.speak(
+                sentences[i].text,
+                {
+                  voice: fallbackOpt.voices[0]?.voice ?? '',
+                  rate: rateRef.current,
+                },
+                ac.signal,
+              )
+              activeEngine = fallbackEngine
+              setError('云端语音暂不可用，已临时改用设备发声。')
+            } catch (fallbackError) {
+              if (ac.signal.aborted) return
+              setError(
+                fallbackError instanceof Error
+                  ? fallbackError.message
+                  : '朗读失败，请重试。',
+              )
+              setPlaying(false)
+              return
+            }
+          } else {
+            setError(e instanceof Error ? e.message : '朗读失败，请重试。')
+            setPlaying(false)
+            return
+          }
         }
 
         skipped = 0
@@ -215,7 +260,8 @@ export function useReadAlong(docId: string, sentences: Sentence[]): ReadAlongApi
 
     return () => {
       ac.abort()
-      engine.stop()
+      activeEngine.stop()
+      if (fallbackEngine && fallbackEngine !== activeEngine) fallbackEngine.stop()
     }
     // 注意：rate 刻意不在依赖里（C3）—— 改语速不重启循环，从下一句生效。
     // 改引擎/音色仍然会重启，那是有意的：换了声音就该立刻听到新声音。

@@ -590,11 +590,18 @@ export class DataAccessLibrary {
       .get(docId, imageId) as ImageRow | undefined
   }
 
-  /** 上传成功后回写 remote_url */
-  setImageRemoteUrl(imageId: string, remoteUrl: string): void {
+  /**
+   * 上传成功后回写 remote_url。
+   *
+   * 必须同时带 docId：不同文档可以有相同的 imageId（复合主键），
+   * 只按 image_id 更新会把别的书里同名图片的 remote_url 一起改掉。
+   */
+  setImageRemoteUrl(docId: string, imageId: string, remoteUrl: string): void {
     getDb()
-      .prepare('UPDATE T_ImageResource SET remote_url = ? WHERE image_id = ?')
-      .run(remoteUrl, imageId)
+      .prepare(
+        'UPDATE T_ImageResource SET remote_url = ? WHERE doc_id = ? AND image_id = ?',
+      )
+      .run(remoteUrl, docId, imageId)
   }
 
   /** 契约 §4.2：原始文件上传成功后回写 T_Document.resource_url */

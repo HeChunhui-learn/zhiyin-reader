@@ -119,7 +119,7 @@ export default async function resourceRoutes(app: FastifyInstance) {
       writeFileSync(join(IMAGE_DIR, `${key}${ext}`), body)
 
       const imageUrl = `/api/documents/${docId}/images/${imageId}`
-      dal.setImageRemoteUrl(imageId, imageUrl)
+      dal.setImageRemoteUrl(docId, imageId, imageUrl)
 
       return {
         imageId,

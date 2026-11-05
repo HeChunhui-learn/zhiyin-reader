@@ -15,6 +15,11 @@ function synth(): SpeechSynthesis | null {
   return typeof speechSynthesis !== 'undefined' ? speechSynthesis : null
 }
 
+/** 当前环境是否真的提供 Web Speech 合成能力（Android WebView 通常没有） */
+export function isBrowserTtsSupported(): boolean {
+  return synth() !== null
+}
+
 function listZhVoices(): VoiceOption[] {
   const s = synth()
   if (!s) return []
@@ -153,7 +158,11 @@ export class BrowserTtsEngine implements TtsEngine {
 
   speak(text: string, opts: SpeakOptions, signal: AbortSignal): Promise<void> {
     const s = synth()
-    if (!s) return Promise.reject(new Error('当前浏览器不支持语音合成'))
+    if (!s) {
+      return Promise.reject(
+        new Error('当前浏览器不支持语音合成，请使用 Chrome / Edge，或安装知音漫卷 App。'),
+      )
+    }
     const rate = clampRate(opts.rate)
     // 这句话"最多该念多久"：按保守语速估算，超了就是接口把 end 事件吞了
     const budget = Math.max(
