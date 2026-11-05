@@ -5,7 +5,7 @@ import { cacheGet, cachePut, objectUrl, releaseObjectUrl } from './imageCache'
 /**
  * 单张图片的按需加载。
  *
- * 依据 04 §4.1.3：
+ * 依据 docs/system-design.md §6.2 / §8：
  *   1. 图片未进入视口时不发起任何网络请求（IntersectionObserver 控制）
  *   2. 缓存命中直接读本地 Blob；未命中才向服务端取
  *   3. 图片离开视口时清空对象地址、释放 Blob，但 IndexedDB 里的副本保留

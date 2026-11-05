@@ -7,7 +7,7 @@ import { createHash } from 'node:crypto'
  * client/src/features/readalong/ttsCacheKey.ts，改动时两边一起改，
  * 否则客户端永远命中不了服务端的缓存，等于每句都要重新合成。
  *
- * 加 \u0001 分隔符是为了避免直接拼接的歧义（材料审查 O50）：
+ * 加 \u0001 分隔符是为了避免直接拼接的歧义（直接拼接会有歧义）：
  * ("a","b") 与 ("ab","") 拼出来是同一个串。
  */
 export function ttsCacheKey(

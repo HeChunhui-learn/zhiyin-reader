@@ -6,7 +6,13 @@ import {
   type BookmarkDto,
   type ConflictEnvelope,
 } from '../../api/client'
-import { enqueuePending } from './pendingQueue'
+import { authStore } from '../../api/authStore'
+import {
+  enqueuePending,
+  listPending,
+  clearPending,
+  pickSyncedBookmark,
+} from './pendingQueue'
 
 /**
  * 书签的读写（契约 §7 的单项接口）。
@@ -152,6 +158,17 @@ export function useBookmarks(docId: string, enabled: boolean): BookmarksApi {
       }
       try {
         await api.createBookmark(payload)
+        // 在线补报成功后，把同 bookmarkId 的离线行清掉；
+        // 不清的话「待同步 N 条」会一直挂着，直到手动一键同步
+        try {
+          const done = pickSyncedBookmark(
+            await listPending(authStore.userId, docId),
+            payload.bookmarkId,
+          )
+          if (done.length > 0) await clearPending(done.map((r) => r.id))
+        } catch {
+          /* 清队列失败不影响书签创建 */
+        }
         await reload()
       } catch (e) {
         if (e instanceof ApiError && e.status === 0) {
@@ -159,7 +176,7 @@ export function useBookmarks(docId: string, enabled: boolean): BookmarksApi {
           void enqueuePending(docId, 'bookmark', {
             ...payload,
             kind: 'created',
-          })
+          }, authStore.userId)
           setItems((prev) => [
             ...prev,
             { ...payload, version: 0, createdAt: payload.updatedAt, deletedAt: null },
@@ -183,7 +200,7 @@ export function useBookmarks(docId: string, enabled: boolean): BookmarksApi {
    * 先本地重排立即渲染（拖完不许等网络），再发请求。
    * 失败（含 409 整批回滚）就把顺序**回滚到服务端真值** —— reload() 会重新按
    * sort_order 拉一遍，不留半吊子状态。错误提示放在 reload 之后设置，
-   * 否则 reload 成功会清空 error（R5 踩过的坑，见 CLAUDE.md 同步约定第 7 条）。
+   * 否则 reload 成功会清空 error（R5 踩过的坑，见 docs/system-develop.md §4.6 第 10 条）。
    */
   const reorder = useCallback(
     async (orderedIds: string[]) => {

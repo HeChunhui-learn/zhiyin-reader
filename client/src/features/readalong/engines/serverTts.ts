@@ -10,11 +10,11 @@ import { abortError, type SpeakOptions, type TtsEngine, type VoiceOption } from 
  * 契约 §9.2：前端不直接调用第三方服务，一律经服务端代理；音频按
  * sha256(engine + voice + rate + text) 缓存，**客户端命中时连请求都不发**。
  *
- * 04 §4.1.4：控制器始终预先合成后续句子（缓冲不少于 2 句），减少句间停顿。
+ * docs/system-design.md §6.3：控制器始终预先合成后续句子（缓冲不少于 2 句），减少句间停顿。
  * 预取放在这里，对上层透明。
  */
 
-/** 预加载的句子数（04 §4.1.4 要求"不少于 2 句"） */
+/** 预加载的句子数（docs/system-design.md §6.3 要求"不少于 2 句"） */
 const PRELOAD_AHEAD = 2
 
 /** 单句合成失败时的重试次数（不含首次） */

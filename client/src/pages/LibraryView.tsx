@@ -239,6 +239,15 @@ export default function LibraryView() {
       if (result.conflicts > 0) {
         setSyncPhase('conflict')
         setNotice({ kind: 'done', text: `同步完成，有 ${result.conflicts} 条冲突待处理` })
+      } else if (result.failed > 0) {
+        // 部分组没补报成功（5xx / 网络）：保留它们的队列，提示稍后重试
+        setSyncPhase('error')
+        setNotice({
+          kind: 'failed',
+          text: result.flushed > 0
+            ? `已补报 ${result.flushed} 条，另有 ${result.failed} 组失败，请稍后重试`
+            : `同步失败（${result.failed} 组），请稍后重试`,
+        })
       } else {
         setSyncPhase('ok')
         setNotice({
@@ -649,11 +658,6 @@ export default function LibraryView() {
         </aside>
 
         <main className="shelf-main">
-          {/* 纸上的两团墨晕，慢慢漂；纯装饰，不吃点击 */}
-          <div className="shelf-wash" aria-hidden="true">
-            <i />
-            <i />
-          </div>
           {stage.kind !== 'idle' && (
             <div className={'parse-bar' + (stage.kind === 'done' ? ' done' : stage.kind === 'error' ? ' failed' : '')}>
               {stage.kind === 'parsing' && <span>正在解析「{stage.fileName}」…</span>}
@@ -964,7 +968,7 @@ export default function LibraryView() {
                 {nav === 'favorite'
                   ? '把鼠标移到书封面上，点亮左上角的 ☆ 就收藏了'
                   : nav === 'offline'
-                    ? '"有本地副本"是纯客户端状态，服务端不可知（材料审查 O21）'
+                    ? '"有本地副本"是纯客户端状态，服务端不可知'
                     : '点右上角「导入文档」，选一个 EPUB / TXT / Markdown 文件试试'}
               </p>
             </div>

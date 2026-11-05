@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { parseBuildId } from '../src/features/app/webBuild'
+import { isPhoneOrTablet, parseBuildId } from '../src/features/app/webBuild'
 
 /**
  * 网页版更新提示的底座：从 index.html 里取构建号。
@@ -36,5 +36,49 @@ describe('网页构建号解析（webBuild/parseBuildId）', () => {
   it('没有构建号时返回空串，调用方据此不做比较', () => {
     expect(parseBuildId('<meta name="viewport" content="width=device-width">')).toBe('')
     expect(parseBuildId('')).toBe('')
+  })
+})
+
+/**
+ * 网页更新横幅只在手机 / 平板上出现。
+ *
+ * 不能用 `maxTouchPoints > 0` 判断：带触摸屏的 Windows 笔记本也有触摸点，
+ * 但它仍然配鼠标、有 hover，是桌面。用「主指针是粗的」+「没有 hover」才准确。
+ */
+describe('手机 / 平板判断（webBuild/isPhoneOrTablet）', () => {
+  function env(opts: { coarse: boolean; noHover: boolean; width?: number; touchPoints?: number }) {
+    const win = {
+      innerWidth: opts.width ?? 1440,
+      matchMedia(query: string) {
+        if (query.includes('pointer: coarse')) return { matches: opts.coarse }
+        if (query.includes('hover: none')) return { matches: opts.noHover }
+        return { matches: false }
+      },
+    }
+    const nav = { maxTouchPoints: opts.touchPoints ?? 0 }
+    return { win, nav }
+  }
+
+  it('手机 / 平板：粗指针且没有 hover', () => {
+    const { win, nav } = env({ coarse: true, noHover: true, width: 390, touchPoints: 5 })
+    expect(isPhoneOrTablet(win, nav)).toBe(true)
+  })
+
+  it('带触摸屏的桌面：有触摸点但有 hover，不当成手机', () => {
+    const { win, nav } = env({ coarse: false, noHover: false, width: 1440, touchPoints: 10 })
+    expect(isPhoneOrTablet(win, nav)).toBe(false)
+  })
+
+  it('被拖窄的桌面窗口：宽度 ≤ 1024 也不算手机', () => {
+    const { win, nav } = env({ coarse: false, noHover: false, width: 1000, touchPoints: 0 })
+    expect(isPhoneOrTablet(win, nav)).toBe(false)
+  })
+
+  it('没有 matchMedia 的环境一律按桌面处理', () => {
+    expect(isPhoneOrTablet({ innerWidth: 390 } as never, { maxTouchPoints: 5 })).toBe(false)
+  })
+
+  it('没有 window / navigator 时返回 false，不抛错', () => {
+    expect(isPhoneOrTablet(null, null)).toBe(false)
   })
 })

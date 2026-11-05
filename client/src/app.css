@@ -1172,6 +1172,11 @@ button {
   background: rgba(0, 0, 0, 0.28);
 }
 
+/* 书签栏在桌面是推开正文的侧栏，不需要遮罩；窄屏改成覆盖式抽屉时才显示 */
+.marks-mask {
+  display: none;
+}
+
 /* --------------------------------------------------------- 阅读设置面板 */
 
 .set-group {
@@ -3444,37 +3449,30 @@ button {
   .reader-topbar .btn-conflict {
     background: var(--bg);
   }
-  .playbar {
-    height: auto;
-    margin: 0 10px 10px;
-    padding: 10px 12px;
-    gap: 8px;
-    border-radius: 12px;
-    flex-wrap: wrap;
-  }
-  .pb-field {
-    font-size: 12px;
-    gap: 5px;
-  }
-  /* 下拉框的选项文字（1.0x / 音色名）已经说明了含义，窄屏省掉标签 */
-  .pb-field > span {
-    display: none;
-  }
-  .pb-voice {
-    flex: 1 1 100%;
-    min-width: 0;
-  }
-  .pb-counter {
-    margin-left: auto;
-    font-size: 12px;
-  }
-  .pb-collapse {
-    margin-left: 0;
-  }
+  /* 播放条的窄屏布局在文件末尾的移动端区块：
+     R7 之后的视觉改版（5000 行以后）重定义了 .playbar 的基础高度和 flex，
+     写在这段媒体查询里会被它覆盖，只能放到最后 */
   /* 抽屉改成近乎全宽；窄屏上留一条缝，好让读者看出后面还有正文 */
   .toc-panel.drawer,
   .toc-panel.drawer-right {
     width: 88%;
+  }
+  /* 书签栏：桌面是推开正文的 260px 侧栏，手机上正文本来就窄，
+     推开就没法读了 —— 盖上去做抽屉，点遮罩或再按一次「书签」收起 */
+  .marks-mask {
+    display: block;
+  }
+  .marks-panel {
+    position: absolute;
+    top: 0;
+    right: 0;
+    bottom: 0;
+    left: auto;
+    z-index: 20;
+    width: min(86%, 320px);
+    border-right: none;
+    border-left: 1px solid var(--border);
+    box-shadow: -8px 0 24px rgba(0, 0, 0, 0.18);
   }
   .modal {
     width: calc(100% - 24px);
@@ -3665,47 +3663,6 @@ button {
   }
 }
 
-@keyframes figure-sheen {
-  0% {
-    background-position: 130% 0;
-  }
-  55%,
-  100% {
-    background-position: -50% 0;
-  }
-}
-
-@keyframes halo {
-  0%,
-  100% {
-    opacity: 0.32;
-    transform: translate(-50%, -50%) scale(0.88);
-  }
-  50% {
-    opacity: 0.72;
-    transform: translate(-50%, -50%) scale(1.12);
-  }
-}
-
-@keyframes dot-sweep {
-  from {
-    transform: translateX(-110%);
-  }
-  to {
-    transform: translateX(110%);
-  }
-}
-
-@keyframes glare-breathe {
-  0%,
-  100% {
-    opacity: 0.35;
-  }
-  50% {
-    opacity: 0.9;
-  }
-}
-
 @keyframes ink-underline {
   from {
     transform: scaleX(0);
@@ -3827,7 +3784,9 @@ button {
   height: 140%;
   background: linear-gradient(100deg, transparent, rgba(255, 255, 255, 0.8), transparent);
   transform: rotate(12deg);
-  animation: seal-sheen 6.5s ease-in-out 1.4s infinite;
+  /* 落章后只扫一遍高光就停：原先 infinite 的 6.5s 循环只是装饰，
+     却让这枚小印在整个停留期间一直挂在合成器里 */
+  animation: seal-sheen 6.5s ease-in-out 1.4s 1;
 }
 
 /* ------------------------------------------------------------ 引导页 */
@@ -3866,7 +3825,6 @@ button {
   background: radial-gradient(circle, var(--accent), transparent 68%);
   filter: blur(7px);
   opacity: 0.4;
-  animation: halo 4.4s ease-in-out infinite;
   pointer-events: none;
 }
 
@@ -3882,41 +3840,19 @@ button {
   animation: rise-in 0.6s 0.06s var(--ease-soft) both;
 }
 
-.guide-cards {
-  perspective: 1000px;
-}
-
 .guide-card {
   position: relative;
-  /* 悬停时按光标位置微微倾斜，静止时归零 */
-  transform: perspective(900px) rotateX(var(--rx, 0deg)) rotateY(var(--ry, 0deg));
-  transition: transform 0.18s ease, box-shadow 0.22s ease, border-color 0.22s ease;
+  /* 悬停只做位移，投影与描边直接切换：
+     动画 box-shadow 会让卡片在 0.2s 里每帧重画一次（投影越大越贵），
+     悬停淡入淡出那点柔和度，不值得每帧重栅格 */
+  transition: transform 0.18s ease;
   animation: rise-in 0.55s var(--ease-soft) both;
   overflow: hidden;
 }
 
 .guide-card:hover {
-  transform: perspective(900px) translateY(-4px) rotateX(var(--rx, 0deg)) rotateY(var(--ry, 0deg));
+  transform: translateY(-4px);
   box-shadow: 0 18px 34px rgba(30, 55, 85, 0.14);
-}
-
-/* 跟着光标走的一团墨晕 */
-.guide-card-glow {
-  position: absolute;
-  inset: 0;
-  border-radius: inherit;
-  opacity: 0;
-  transition: opacity 0.28s ease;
-  pointer-events: none;
-  background: radial-gradient(
-    200px 150px at var(--gx, -999px) var(--gy, -999px),
-    rgba(45, 100, 145, 0.16),
-    transparent 72%
-  );
-}
-
-.guide-card:hover .guide-card-glow {
-  opacity: 1;
 }
 
 .guide-dots {
@@ -3936,29 +3872,6 @@ button {
   overflow: hidden;
   cursor: pointer;
   transition: width 0.25s var(--ease-soft), background 0.25s ease;
-}
-
-.guide-dot-fill {
-  position: absolute;
-  inset: 0;
-  background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.9), transparent);
-  animation: dot-sweep 2.2s linear infinite;
-}
-
-/* 图片上缓慢扫过的一道高光，让静态照片有"雾在动"的感觉 */
-.guide-figure-sheen {
-  position: absolute;
-  inset: 0;
-  z-index: 1;
-  pointer-events: none;
-  background: linear-gradient(
-    105deg,
-    transparent 34%,
-    rgba(255, 255, 255, 0.16) 48%,
-    transparent 62%
-  );
-  background-size: 220% 100%;
-  animation: figure-sheen 9s ease-in-out infinite;
 }
 
 .guide-figure-hint {
@@ -3992,28 +3905,6 @@ button {
   z-index: 3;
 }
 
-/* 主按钮：一道光每隔几秒扫过去 */
-.guide-actions .btn-primary,
-.login-card .btn-primary {
-  position: relative;
-  overflow: hidden;
-  isolation: isolate;
-}
-
-.guide-actions .btn-primary::after,
-.login-card .btn-primary::after {
-  content: '';
-  position: absolute;
-  top: -60%;
-  left: -40%;
-  width: 32%;
-  height: 220%;
-  background: linear-gradient(100deg, transparent, rgba(255, 255, 255, 0.42), transparent);
-  transform: rotate(16deg) translateX(0);
-  animation: sheen-sweep 5.5s ease-in-out 1.2s infinite;
-  pointer-events: none;
-}
-
 /* ------------------------------------------------------------ 登录页 */
 
 .login-card {
@@ -4021,7 +3912,7 @@ button {
   animation: rise-in 0.5s 0.04s var(--ease-soft) both;
 }
 
-/* 玻璃卡上沿的一道反光：常驻，慢慢呼吸 */
+/* 玻璃卡上沿的一道反光：静态，靠卡片自身的投影交代层次 */
 .login-card-glare {
   position: absolute;
   left: 8%;
@@ -4029,7 +3920,6 @@ button {
   top: 0;
   height: 1px;
   background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.95), transparent);
-  animation: glare-breathe 5.5s ease-in-out infinite;
   pointer-events: none;
 }
 
@@ -4104,12 +3994,6 @@ button {
 
 /* ------------------------------------------------------------ 书架 */
 
-.guide-page .btn,
-.book-card,
-.stat-card {
-  will-change: transform;
-}
-
 .book-card {
   position: relative;
 }
@@ -4168,20 +4052,12 @@ button {
   color: rgba(255, 255, 255, 0.11);
 }
 
-/* 进度条：进场时从零长出来，跑满后再走一道细光 */
+/* 进度条：进场时从零长出来 */
 .book-progress-fill {
   transform-origin: left center;
   position: relative;
   overflow: hidden;
   animation: bar-grow 0.8s var(--ease-soft) both;
-}
-
-.book-progress-fill::after {
-  content: '';
-  position: absolute;
-  inset: 0;
-  background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.55), transparent);
-  animation: dot-sweep 2.8s linear infinite;
 }
 
 /* 导入解析中：进度条上一条来回扫的墨线 */
@@ -4346,23 +4222,11 @@ button {
   font-size: 10px;
 }
 
-/* 跟读：正在读的那一句，墨晕会跟着呼吸，幅度压得很低，不抢字 */
+/* 跟读：正在读的那一句用静态墨晕标出来。
+   原先还叠了 2.8s 的无限呼吸阴影，朗读期间每一帧都要重绘文字层，
+   收益却只是「亮一点暗一点」，这里只保留一次性的晕开。 */
 .doc-p .sent {
   transition: background-color 0.16s ease, box-shadow 0.32s ease;
-}
-
-.doc-p .sent-active {
-  animation: sent-breathe 2.8s ease-in-out infinite;
-}
-
-@keyframes sent-breathe {
-  0%,
-  100% {
-    box-shadow: 0 0 0 2px var(--hl), 0 3px 10px rgba(45, 100, 145, 0.06);
-  }
-  50% {
-    box-shadow: 0 0 0 2px var(--hl), 0 6px 20px rgba(45, 100, 145, 0.2);
-  }
 }
 
 /* 声纹挪进主按钮里：白色细条，跟着「跟读 / 暂停」的字走，高度收小一号 */
@@ -4443,6 +4307,18 @@ button {
   --py: 0;
 }
 
+/* 每层各占一个绝对定位的 div：位移只改 transform，合成器挪图层即可，
+   不会像同一张 SVG 里的 <g> 那样每次指针移动都重栅格整片山 */
+.guide-peaks .peak,
+.guide-peaks .peak-mist {
+  position: absolute;
+  inset: 0;
+}
+
+.guide-peaks .peak {
+  will-change: transform;
+}
+
 .guide-peaks svg {
   display: block;
   width: 100%;
@@ -4474,10 +4350,20 @@ button {
   fill: rgb(var(--ink-rgb) / 0.19);
 }
 
-/* 山腰的雾：把三层隔开，墨色才分层 */
-.peak-mist ellipse {
-  fill: rgb(var(--paper-rgb) / 0.6);
-  filter: blur(16px);
+/* 山腰的雾：两团椭圆径向渐变，把三层隔开
+   原来是 SVG 里的 blur(16px) 滤镜 —— 鼠标一动整片山重栅格，滤镜也要重算 */
+.peak-mist {
+  background:
+    radial-gradient(
+      380px 74px at 29.2% 62%,
+      rgb(var(--paper-rgb) / 0.55),
+      rgb(var(--paper-rgb) / 0) 72%
+    ),
+    radial-gradient(
+      330px 66px at 75% 58%,
+      rgb(var(--paper-rgb) / 0.5),
+      rgb(var(--paper-rgb) / 0) 72%
+    );
 }
 
 /* ------------------------------------------------------------ A5 纸面的光 */
@@ -4491,50 +4377,23 @@ button {
   background:
     radial-gradient(56% 48% at 66% 2%, var(--guide-light-a), transparent 72%),
     radial-gradient(40% 38% at 16% 8%, var(--guide-light-b), transparent 76%);
-  animation: light-drift 28s ease-in-out infinite alternate;
-  will-change: transform, opacity;
 }
 
-@keyframes light-drift {
-  0% {
-    transform: translate3d(-2%, -1%, 0) scale(1);
-    opacity: 0.85;
-  }
-  50% {
-    transform: translate3d(1.5%, 1%, 0) scale(1.05);
-    opacity: 1;
-  }
-  100% {
-    transform: translate3d(3%, -0.5%, 0) scale(1.02);
-    opacity: 0.9;
-  }
-}
-
-/* 四周的暗角：慢慢呼吸，画面就不会是"死"的 */
+/* 四周的暗角：固定在最暗与最亮之间，不再整页呼吸 */
 .guide-vignette {
   position: absolute;
   inset: 0;
   z-index: 2;
   pointer-events: none;
+  opacity: 0.78;
   background: radial-gradient(120% 92% at 50% 46%, transparent 56%, rgba(52, 74, 98, 0.14) 100%);
-  animation: vignette-breathe 9s ease-in-out infinite;
 }
 
 [data-theme='dark'] .guide-vignette {
   background: radial-gradient(120% 92% at 50% 46%, transparent 44%, rgba(4, 8, 14, 0.62) 100%);
 }
 
-@keyframes vignette-breathe {
-  0%,
-  100% {
-    opacity: 0.55;
-  }
-  50% {
-    opacity: 1;
-  }
-}
-
-/* 极淡的纸纹，横竖两组细线错着走，凑出宣纸的织理 */
+/* 极淡的纸纹，横竖两组细线错着走，凑出宣纸的织理（静态） */
 .guide-grain {
   position: absolute;
   inset: 0;
@@ -4545,19 +4404,6 @@ button {
     repeating-linear-gradient(0deg, rgba(140, 128, 108, 0.05) 0 1px, transparent 1px 3px),
     repeating-linear-gradient(90deg, rgba(140, 128, 108, 0.04) 0 1px, transparent 1px 4px);
   background-size: 100% 100%, 100% 100%;
-  animation: grain-shift 12s steps(6) infinite;
-}
-
-@keyframes grain-shift {
-  0% {
-    transform: translate3d(0, 0, 0);
-  }
-  50% {
-    transform: translate3d(-1px, 1px, 0);
-  }
-  100% {
-    transform: translate3d(1px, -1px, 0);
-  }
 }
 
 /* 正文抬到光效之上 */
@@ -4627,7 +4473,6 @@ button {
   mask-size: 280% 100%;
   -webkit-mask-repeat: no-repeat;
   mask-repeat: no-repeat;
-  will-change: mask-position;
   animation: ink-wash var(--ink-dur, 560ms) var(--ease-soft) var(--ink-step) both;
 }
 
@@ -4636,14 +4481,12 @@ button {
     -webkit-mask-position: 210% 0;
     mask-position: 210% 0;
     opacity: 0.18;
-    filter: blur(3px);
     transform: translateY(0.14em);
   }
   to {
     -webkit-mask-position: 0% 0;
     mask-position: 0% 0;
     opacity: 1;
-    filter: blur(0);
     transform: none;
   }
 }
@@ -4895,7 +4738,7 @@ button {
   background-repeat: no-repeat;
   background-position: center;
   background-size: 0% 100%;
-  animation: sent-wash 0.5s var(--ease-soft) forwards, sent-breathe 2.8s 0.5s ease-in-out infinite;
+  animation: sent-wash 0.5s var(--ease-soft) forwards;
 }
 
 [data-theme='dark'] .doc-p .sent-active,
@@ -5355,9 +5198,7 @@ button {
   );
   background-repeat: no-repeat;
   background-size: 0% 100%;
-  animation:
-    sent-wash 0.62s var(--ease-soft) forwards,
-    sent-breathe 2.8s 0.62s infinite;
+  animation: sent-wash 0.62s var(--ease-soft) forwards;
 }
 
 /* ------------------------------------------------------------ 减少动态效果 */
@@ -5383,114 +5224,40 @@ button {
   }
 }
 
-/* 书架纸面：两团缓慢漂移的墨晕（不依赖任何交互就能看见）
-   浅色主题下用中等透明度 + 高斯模糊，保证在宣纸底色上肉眼可辨 */
+/* 书架纸面：墨晕直接画在底色上。
+
+   原先叠了 4 个 700px 级、带 blur(44~52px) 与 mix-blend-mode 的图层，
+   还各自跑 26~44s 的无限漂移 —— 书架/统计/个人主页一打开就在合成器里
+   常驻四张大图。径向渐变本身就是柔边，blur 对它是多余的；漂移也几乎
+   看不出来。现在收成一层静态背景，额外图层从 4 个降到 0 个，每帧成本为 0。 */
 
 .shelf-main {
   position: relative;
-  isolation: isolate;
   background-color: var(--bg-soft);
-  background-image: radial-gradient(rgba(60, 80, 100, 0.05) 0.7px, transparent 0.7px);
-  background-size: 6px 6px;
+  background-image:
+    radial-gradient(560px 420px at 6% 2%, rgb(var(--ink-rgb) / 0.16), transparent 70%),
+    radial-gradient(440px 360px at 94% 98%, rgb(var(--ink-rgb) / 0.12), transparent 72%),
+    radial-gradient(380px 300px at 58% 22%, rgb(var(--ink-rgb) / 0.08), transparent 74%),
+    radial-gradient(rgba(60, 80, 100, 0.05) 0.7px, transparent 0.7px);
+  background-size: auto, auto, auto, 6px 6px;
 }
 
-.shelf-main > .shelf-wash {
-  position: absolute;
-  inset: 0;
-  z-index: 0;
-  overflow: hidden;
-  pointer-events: none;
-}
-
-.shelf-main > .shelf-wash i {
-  position: absolute;
-  display: block;
-  border-radius: 50%;
-  filter: blur(52px);
-  background: radial-gradient(
-    circle at 50% 50%,
-    rgb(var(--ink-rgb) / 0.3),
-    rgb(var(--ink-rgb) / 0.11) 52%,
-    rgb(var(--ink-rgb) / 0) 74%
-  );
-  animation: wash-drift 26s ease-in-out infinite alternate;
-}
-
-.shelf-main > .shelf-wash i:first-child {
-  width: 720px;
-  height: 520px;
-  left: -150px;
-  top: -130px;
-}
-
-.shelf-main > .shelf-wash i:last-child {
-  width: 560px;
-  height: 420px;
-  right: -130px;
-  bottom: -110px;
-  opacity: 0.85;
-  animation-duration: 34s;
-  animation-direction: alternate-reverse;
-}
-
-@keyframes wash-drift {
-  from {
-    transform: translate3d(0, 0, 0) scale(1);
-  }
-  to {
-    transform: translate3d(240px, 150px, 0) scale(1.16);
-  }
+/* 暗色下墨晕改成冷调微光，别把夜景照亮 */
+[data-theme='dark'] .shelf-main {
+  background-image:
+    radial-gradient(560px 420px at 6% 2%, rgb(var(--ink-rgb) / 0.1), transparent 70%),
+    radial-gradient(440px 360px at 94% 98%, rgb(var(--ink-rgb) / 0.08), transparent 72%),
+    radial-gradient(380px 300px at 58% 22%, rgb(var(--ink-rgb) / 0.05), transparent 74%),
+    radial-gradient(rgba(60, 80, 100, 0.05) 0.7px, transparent 0.7px);
 }
 
 /* 内容压在墨晕之上 */
-.shelf-main > *:not(.shelf-wash) {
+.shelf-main > * {
   position: relative;
   z-index: 1;
 }
 
-/* 暗色下墨晕改成冷调微光，别把夜景照亮 */
-[data-theme='dark'] .shelf-main > .shelf-wash i {
-  background: radial-gradient(
-    circle at 50% 50%,
-    rgb(var(--ink-rgb) / 0.17),
-    rgb(var(--ink-rgb) / 0.06) 54%,
-    rgb(var(--ink-rgb) / 0) 74%
-  );
-}
-
-@media (prefers-reduced-motion: reduce) {
-  .shelf-main > .shelf-wash i {
-    animation: none;
-  }
-}
-
-/* 书封上的光自己会走：每张卡错开，不用悬停也看得见 */
-
-.book-cover-sheen {
-  animation: sheen-idle 8.4s var(--ease-soft) infinite;
-  animation-delay: calc(var(--i, 0) * 0.7s);
-}
-
-@keyframes sheen-idle {
-  0% {
-    opacity: 0;
-    transform: rotate(10deg) translateX(0);
-  }
-  14% {
-    opacity: 0.72;
-  }
-  38% {
-    opacity: 0.72;
-  }
-  56% {
-    opacity: 0;
-    transform: rotate(10deg) translateX(360%);
-  }
-  100% {
-    opacity: 0;
-    transform: rotate(10deg) translateX(360%);
-  }
-}
+/* 书封上的光只在悬停时扫一次，不再每张卡各跑一条 8.4s 的常驻动画 */
 
 /* ------------------------------------------------------------ 顶栏昼夜开关 */
 
@@ -5628,62 +5395,6 @@ button {
   .theme-toggle-sun,
   .theme-toggle-moon {
     transition: none;
-  }
-}
-
-/* ------------------------------------------------------------ 书架墨晕加强 */
-
-/* 墨要“染”在纸上：用 multiply 让蓝色压进纸色里，而不是发光的白雾 */
-.shelf-main > .shelf-wash i {
-  mix-blend-mode: multiply;
-}
-
-.shelf-main > .shelf-wash::before,
-.shelf-main > .shelf-wash::after {
-  content: '';
-  position: absolute;
-  border-radius: 50%;
-  filter: blur(44px);
-  mix-blend-mode: multiply;
-  pointer-events: none;
-  background: radial-gradient(
-    circle at 50% 50%,
-    rgb(var(--ink-rgb) / 0.26),
-    rgb(var(--ink-rgb) / 0.09) 54%,
-    transparent 76%
-  );
-  animation: wash-drift 32s ease-in-out infinite alternate;
-}
-
-.shelf-main > .shelf-wash::before {
-  width: 460px;
-  height: 360px;
-  left: 46%;
-  top: 12%;
-  opacity: 0.75;
-  animation-duration: 38s;
-}
-
-.shelf-main > .shelf-wash::after {
-  width: 360px;
-  height: 300px;
-  left: 10%;
-  bottom: 4%;
-  opacity: 0.6;
-  animation-duration: 44s;
-  animation-direction: alternate-reverse;
-}
-
-[data-theme='dark'] .shelf-main > .shelf-wash i,
-[data-theme='dark'] .shelf-main > .shelf-wash::before,
-[data-theme='dark'] .shelf-main > .shelf-wash::after {
-  mix-blend-mode: screen;
-}
-
-@media (prefers-reduced-motion: reduce) {
-  .shelf-main > .shelf-wash::before,
-  .shelf-main > .shelf-wash::after {
-    animation: none;
   }
 }
 
@@ -5918,23 +5629,12 @@ button {
     radial-gradient(520px 400px at 24% 20%, rgba(132, 172, 226, 0.3), transparent 66%),
     radial-gradient(480px 360px at 82% 76%, rgba(94, 138, 194, 0.24), transparent 68%);
   filter: blur(16px);
-  animation: brand-drift 22s ease-in-out infinite alternate;
 }
 
 .login-brand::after {
   background-image: radial-gradient(rgba(255, 255, 255, 0.1) 0.6px, transparent 0.6px);
   background-size: 5px 5px;
   opacity: 0.5;
-  animation: grain-shift 14s steps(6) infinite;
-}
-
-@keyframes brand-drift {
-  from {
-    transform: translate3d(-2.5%, -1.5%, 0) scale(1);
-  }
-  to {
-    transform: translate3d(3.5%, 2.5%, 0) scale(1.08);
-  }
 }
 
 .login-field {
@@ -5966,18 +5666,6 @@ button {
   inset: 0;
   pointer-events: none;
   background: radial-gradient(640px 480px at 72% 4%, rgba(45, 100, 145, 0.1), transparent 68%);
-  animation: panel-light 16s ease-in-out infinite alternate;
-}
-
-@keyframes panel-light {
-  from {
-    opacity: 0.55;
-    transform: translate3d(-2%, -1%, 0);
-  }
-  to {
-    opacity: 1;
-    transform: translate3d(2%, 2%, 0);
-  }
 }
 
 /* 卡片不再是一块死白：悬停时边框透出一点墨蓝，投影沉下去 */
@@ -6017,14 +5705,6 @@ button {
   opacity: 1;
 }
 
-@media (prefers-reduced-motion: reduce) {
-  .login-brand::before,
-  .login-brand::after,
-  .login-panel::before {
-    animation: none;
-  }
-}
-
 /* 高级区跟着上面的表单左对齐（.profile-card 里继承了居中） */
 .profile-advanced {
   text-align: left;
@@ -6037,4 +5717,180 @@ button {
 /* 深色底上墨点再多一点存在感 */
 .login-field {
   opacity: 0.7;
+}
+
+/* ------------------------------------------------------------------
+   窄屏下的播放条与书签抽屉。
+   必须放在文件最后：R7 视觉改版（约 5000 行）重定义了 .playbar 的
+   基础高度与 flex 布局，写在前面的媒体查询里会被它盖掉。
+   ------------------------------------------------------------------ */
+@media (max-width: 767px) {
+  /* 三行：走句 + 收起 / 提示 / 进度 + 语速音色。
+     之前是一行 flex 硬挤，音色下拉被 flex-wrap 甩到新行独占整宽，
+     条子又高又空，读正文还挡掉一截。 */
+  .playbar {
+    display: grid;
+    grid-template-columns: auto minmax(0, 1fr) auto;
+    grid-template-areas:
+      'transport transport collapse'
+      'flags flags flags'
+      'progress options options';
+    align-items: center;
+    height: auto;
+    margin: 0 8px calc(8px + env(safe-area-inset-bottom));
+    padding: 8px 12px 10px;
+    gap: 6px 8px;
+    border-radius: 12px;
+  }
+  .pb-transport {
+    grid-area: transport;
+    justify-content: center;
+    gap: 6px;
+  }
+  .pb-collapse {
+    grid-area: collapse;
+    margin-left: 0;
+    padding: 0 8px;
+  }
+  .pb-flags {
+    grid-area: flags;
+    flex-wrap: wrap;
+  }
+  .pb-progress {
+    grid-area: progress;
+    flex-direction: row;
+    align-items: baseline;
+    gap: 6px;
+    min-width: 0;
+  }
+  .pb-options {
+    grid-area: options;
+    margin-left: 0;
+    gap: 8px;
+    min-width: 0;
+  }
+  /* 按钮不撑到 82px：手机上「上一句/下一句」四个字就够宽了，
+     主按钮留 92px，拇指按得准 */
+  .playbar .pb-btn {
+    height: 38px;
+    padding: 0 10px;
+    font-size: 12.5px;
+    white-space: nowrap;
+    flex: none;
+  }
+  .playbar .pb-btn.pb-step {
+    min-width: 0;
+  }
+  .playbar .pb-btn-main {
+    height: 42px;
+    min-width: 92px;
+    font-size: 13.5px;
+  }
+  .pb-field {
+    font-size: 12px;
+    gap: 4px;
+    min-width: 0;
+  }
+  /* 下拉框的选项文字（1.0x / 音色名）已经说明了含义，窄屏省掉标签 */
+  .pb-field > span {
+    display: none;
+  }
+  /* select 的 min-content 是「最长选项」的宽度，不显式归零就压不下去，
+     音色名长一点就把整条撑出屏幕 */
+  .pb-options .pb-field {
+    min-width: 0;
+  }
+  .pb-options .pb-field + .pb-field {
+    flex: 1 1 0;
+  }
+  .pb-options .select {
+    min-width: 0;
+    max-width: 100%;
+  }
+  .pb-voice {
+    flex: 1 1 auto;
+    width: 100%;
+    min-width: 0;
+    max-width: none;
+  }
+  /* 两枚提示药丸在 320px 上也要挤进一行 */
+  .playbar .pb-note {
+    padding: 1px 7px;
+    font-size: 10.5px;
+  }
+  .pb-counter {
+    margin-left: 0;
+    font-size: 11.5px;
+    white-space: nowrap;
+  }
+  .pb-percent {
+    font-size: 10.5px;
+  }
+
+  /* 书签栏：桌面是推开正文的 260px 侧栏，手机上正文本来就窄，
+     推开就没法读 —— 改成从右侧盖上去的抽屉，点遮罩收起 */
+  .marks-mask {
+    display: block;
+  }
+  .marks-panel {
+    position: absolute;
+    top: 0;
+    right: 0;
+    bottom: 0;
+    left: auto;
+    z-index: 20;
+    width: min(86%, 320px);
+    border-right: none;
+    border-left: 1px solid var(--border);
+    box-shadow: -8px 0 24px rgba(0, 0, 0, 0.18);
+  }
+}
+
+/* 顶栏在手机上要放下五颗按钮：收紧内边距，并把日夜开关缩一号，
+   否则 360 宽的小屏会把开关单独挤到第三行 */
+@media (max-width: 420px) {
+  .reader-topbar {
+    padding: 8px 10px;
+    gap: 6px;
+    row-gap: 6px;
+  }
+  .reader-topbar .btn-ghost {
+    padding: 7px 8px;
+    font-size: 12.5px;
+  }
+  .reader-topbar .theme-toggle-track {
+    width: 46px;
+    height: 26px;
+  }
+  .reader-topbar .theme-toggle-thumb {
+    width: 20px;
+    height: 20px;
+  }
+  .reader-topbar .theme-toggle.is-dark .theme-toggle-thumb {
+    transform: translateX(20px);
+  }
+}
+
+/* 320px 级别的老小屏（iPhone SE 一代、小屏安卓）：再收紧一档，
+   否则走句按钮会被挤成两行、播放条横向溢出。
+   这段必须排在 420 区块之后，否则间隙和字号会被它覆盖回去。 */
+@media (max-width: 360px) {
+  .playbar {
+    margin: 0 6px calc(6px + env(safe-area-inset-bottom));
+    padding: 8px 10px 10px;
+  }
+  .pb-transport {
+    gap: 4px;
+  }
+  .playbar .pb-btn {
+    padding: 0 8px;
+  }
+  /* 320 宽时第二行四个动作加上开关只差几像素，收一点内边距与间隙才排得下 */
+  .reader-topbar {
+    gap: 5px;
+  }
+  .reader-topbar .btn-ghost {
+    padding: 6px;
+    font-size: 12px;
+  }
 }

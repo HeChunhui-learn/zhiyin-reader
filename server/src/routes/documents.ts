@@ -12,7 +12,7 @@ const MAX_PARAGRAPHS = 20000
 interface ImportParagraph {
   paraIndex?: number
   text?: string
-  /** 04 §4.3.1 的字段清单里没有这一列，建库时补的，见 CLAUDE.md 裁决 4 */
+  /** 课程材料的字段清单里没有这一列，建库时补的，见 docs/system-design.md §7 裁决 4 */
   type?: string
   sentences?: { sentenceIndex?: number; startOffset?: number; endOffset?: number }[]
 }

@@ -4,6 +4,7 @@ import { ApiError, api, type ReadingSummary } from '../api/client'
 import InkSeal from '../features/motion/InkSeal'
 import ThemeToggle from '../features/settings/ThemeToggle'
 import { useSession } from '../state/session'
+import { useGoUp } from '../features/app/useGoUp'
 
 /**
  * 阅读时长（R7-5）。
@@ -26,6 +27,7 @@ function humanDuration(ms: number): string {
 
 export default function StatsView() {
   const navigate = useNavigate()
+  const goUp = useGoUp()
   const { user, ready } = useSession()
 
   const [data, setData] = useState<ReadingSummary | null>(null)
@@ -65,7 +67,7 @@ export default function StatsView() {
   return (
     <div className="shelf-page">
       <header className="shelf-topbar">
-        <button className="btn btn-ghost" onClick={() => navigate('/shelf')}>
+        <button className="btn btn-ghost" onClick={goUp}>
           返回书架
         </button>
         <div className="shelf-brand">阅读时长</div>
@@ -76,11 +78,6 @@ export default function StatsView() {
       </header>
 
       <main className="shelf-main stats-main">
-        {/* 纸上的墨晕：和书架一处，别让书架的动效成孤岛 */}
-        <div className="shelf-wash" aria-hidden="true">
-          <i />
-          <i />
-        </div>
         {loading && <div className="shelf-empty">正在统计…</div>}
 
         {!loading && error && (

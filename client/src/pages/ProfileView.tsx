@@ -4,6 +4,7 @@ import { ApiError, DEFAULT_API_BASE, api, getApiBase, setApiBase } from '../api/
 import { invalidateAvatar, default as UserAvatar } from '../features/profile/UserAvatar'
 import ThemeToggle from '../features/settings/ThemeToggle'
 import { useSession } from '../state/session'
+import { useGoUp } from '../features/app/useGoUp'
 
 /**
  * 个人主页（R7-5）：头像上传、改昵称、看账号信息。
@@ -17,6 +18,7 @@ const MAX_AVATAR_BYTES = 2 * 1024 * 1024
 
 export default function ProfileView() {
   const navigate = useNavigate()
+  const goUp = useGoUp()
   const { user, ready, refreshUser } = useSession()
 
   const [nickname, setNickname] = useState('')
@@ -138,7 +140,7 @@ export default function ProfileView() {
   return (
     <div className="shelf-page">
       <header className="shelf-topbar">
-        <button className="btn btn-ghost" onClick={() => navigate('/shelf')}>
+        <button className="btn btn-ghost" onClick={goUp}>
           返回书架
         </button>
         <div className="shelf-brand">个人主页</div>
@@ -148,11 +150,6 @@ export default function ProfileView() {
       </header>
 
       <main className="shelf-main profile-main">
-        {/* 纸上的墨晕：和书架一处，别让书架的动效成孤岛 */}
-        <div className="shelf-wash" aria-hidden="true">
-          <i />
-          <i />
-        </div>
         <div className="profile-card">
           <div className="profile-avatar-row">
             <UserAvatar avatarUrl={user.avatarUrl} name={user.nickname || user.account} size={88} />

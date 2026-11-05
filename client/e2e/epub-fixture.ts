@@ -6,7 +6,7 @@
  *   `client/src/features/parse/epub.ts` 用的是 epub.js，而 epub.js 的
  *   `section.load()` 依赖 DOM（解析 XHTML 章节）。在 Node 环境里直接跑
  *   `parseEpub` 会**静默挂住**（实测 30s 超时）—— 它没有可以用的 document。
- *   要用 jsdom 补替身才行，但 docs/02 记的 D-04 / D-05 / D-06 三个缺陷
+ *   要用 jsdom 补替身才行，但已知的 D-04 / D-05 / D-06 三个缺陷
  *   （object URL 泄漏、包内路径前导斜杠、`<figure><img/></figure>` 漏图）
  *   全是**真机才暴露**的那一类，用替身测等于把这三条重新盖回去。
  *

@@ -238,9 +238,20 @@ export async function synthesize(opts: {
     throw E.validation(['engine'])
   }
 
-  const contentType = FORMAT_MIME[format] ?? 'audio/mpeg'
+  /*
+   * 引擎可能只支持有限格式（Edge 只有 mp3 / opus）。
+   * 在碰缓存之前先问引擎要"实际格式"，缓存扩展名与 Content-Type 都以它为准；
+   * 不支持的格式直接 400，不能把 MP3 字节写进 .wav 再按 audio/wav 返回。
+   */
+  const resolved = provider.resolveFormat
+    ? provider.resolveFormat(format)
+    : { format, contentType: FORMAT_MIME[format] ?? 'audio/mpeg' }
+  if (!resolved) throw E.validation(['format'])
+
+  const effectiveFormat = resolved.format
+  const contentType = resolved.contentType
   const key = ttsCacheKey(engine, voice, rate, text)
-  const file = cachePath(key, format)
+  const file = cachePath(key, effectiveFormat)
 
   if (existsSync(file)) {
     return { buffer: readFileSync(file), contentType, cache: 'hit' }
@@ -255,7 +266,7 @@ export async function synthesize(opts: {
 
     let result
     try {
-      result = await provider.synthesize(text, voice, rate, format)
+      result = await provider.synthesize(text, voice, rate, effectiveFormat)
     } catch (e) {
       const msg = e instanceof Error ? e.message : String(e)
       if (/timeout|aborted/i.test(msg)) throw E.upstreamTimeout(engine)
@@ -266,7 +277,8 @@ export async function synthesize(opts: {
 
     ensureCacheDir()
     writeFileSync(file, result.buffer)
-    return { buffer: result.buffer, contentType: result.contentType, cache: 'miss' }
+    // 用 resolved 的 contentType，而不是 provider 返回的：缓存命中与未命中必须一致
+    return { buffer: result.buffer, contentType, cache: 'miss' }
   } finally {
     release()
   }

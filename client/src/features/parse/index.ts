@@ -31,7 +31,7 @@ export interface ParseOutcome {
 /**
  * 把一个本地文件解析成可以直接 POST /api/documents 的载荷。
  *
- * CLAUDE.md 裁决 1：解析全部在前端做，服务端只负责存储与分发。
+ * docs/system-design.md §7 裁决 1：解析全部在前端做，服务端只负责存储与分发。
  */
 /**
  * 单个文件的大小上限，与服务端对齐（server/src/app.ts 的 BODY_LIMIT、
@@ -154,12 +154,12 @@ function sanityNotes(paragraphs: ParseResult['paragraphs']): string[] {
 }
 
 /**
- * 内容哈希，用于导入去重（04 §4.1.2、(owner_id, content_hash) 联合唯一）。
+ * 内容哈希，用于导入去重（docs/system-design.md §5.3、(owner_id, content_hash) 联合唯一）。
  *
  * 文档写的是"EPUB 按 spine 顺序拼接各章节正文与资源内容后计算 SHA-256"。
  * 这里**没有把图片逐字节算进去**，用的是正文 + 图片在包内的路径：
  * 图片是二进制，纯 JS 逐字节哈希大图代价过高，而路径对同一份文件是稳定的，
- * 去重的实际效果不受影响。这一点与 04 §4.1.2 的措辞有出入，已在交付说明里记明。
+ * 去重的实际效果不受影响。这一点与 docs/system-design.md §5.3 的措辞有出入，已在交付说明里记明。
  */
 function hashContent(result: ParseResult): string {
   const text = result.paragraphs.map((p) => normalizeText(p.text).trim()).join('\n')

@@ -6,7 +6,7 @@ import { auth, closeApp, importBody, makeApp, registerAndLogin, type Session } f
  * AU-01 ~ AU-19 认证与账号（契约 §3 / §2）。
  *
  * 走 `app.inject()` 直接打真实路由，断言状态码、错误码与响应体结构 ——
- * 也就是 docs/02 里那批用例的可执行版本。
+ * 也就是 接口用例的可执行版本。
  */
 
 let app: FastifyInstance

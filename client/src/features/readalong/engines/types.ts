@@ -32,7 +32,7 @@ export interface TtsEngine {
   readonly label: string
   /**
    * 是否有真实音频事件。
-   * false 表示这是降级路径（浏览器原生），04 §4.1.4 要求它明确只支持句子级高亮。
+   * false 表示这是降级路径（浏览器原生），docs/system-design.md §6.3 要求它明确只支持句子级高亮。
    */
   readonly realAudio: boolean
   readonly voices: VoiceOption[]

@@ -19,14 +19,26 @@ export function parseBuildId(html: string): string {
   return ''
 }
 
-/** 手机 / 平板：触摸屏，或窄窗口。桌面端不弹网页更新提示 */
-export function isPhoneOrTablet(): boolean {
-  if (typeof window === 'undefined' || typeof navigator === 'undefined') return false
-  return (
-    navigator.maxTouchPoints > 0 ||
-    window.matchMedia?.('(pointer: coarse)').matches === true ||
-    window.innerWidth <= 1024
-  )
+/**
+ * 手机 / 平板判断。
+ *
+ * 不能只看 `maxTouchPoints > 0`：带触摸屏的 Windows 笔记本也有触摸点，
+ * 但它配鼠标、有 hover，仍然是桌面。也不能只看宽度：桌面窗口可以被拖到 1000px。
+ * 主指针为粗（触摸）**且**没有 hover，才是真正的手机 / 平板。
+ *
+ * 参数默认取全局 window / navigator，测试可以注入假的；没有 matchMedia
+ * 的环境（如纯 Node）一律按桌面处理。
+ */
+export function isPhoneOrTablet(
+  win: Pick<Window, 'innerWidth' | 'matchMedia'> | null =
+    typeof window === 'undefined' ? null : window,
+  _nav: Pick<Navigator, 'maxTouchPoints'> | null =
+    typeof navigator === 'undefined' ? null : navigator,
+): boolean {
+  if (!win || typeof win.matchMedia !== 'function') return false
+  const coarse = win.matchMedia('(pointer: coarse)').matches === true
+  const noHover = win.matchMedia('(hover: none)').matches === true
+  return coarse && noHover
 }
 
 /** 拉取服务器上最新的 index.html 并解析构建号；失败返回空串，不打断阅读 */

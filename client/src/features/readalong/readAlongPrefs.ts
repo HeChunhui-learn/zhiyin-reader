@@ -5,7 +5,7 @@
  * 键名沿用项目里 zhiyin. 前缀的惯例（另两个是 zhiyin.refreshToken、zhiyin.deviceId）。
  *
  * 读的时候必须容错：里面可能是先前版本写的、也可能被手改坏，
- * 解析失败一律当作"没存过"，**绝不能把异常抛进渲染**（CLAUDE.md §七.4 不许白屏）。
+ * 解析失败一律当作"没存过"，**绝不能把异常抛进渲染**（AGENTS.md 交互协议「不允许白屏」）。
  */
 
 const KEY = 'zhiyin.readAlongPrefs'

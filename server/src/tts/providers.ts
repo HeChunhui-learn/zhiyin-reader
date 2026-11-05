@@ -3,7 +3,7 @@
  *
  * 默认是本地自托管的 Kokoro-FastAPI —— 它对外提供 **OpenAI 兼容**接口，
  * 所以这个 provider 实际上是"任何 OpenAI 兼容的 /v1/audio/speech"的通用实现：
- * 换成国内云服务商或 OpenAI 官方，只要改环境变量即可（见《技术选型说明》2.4 的分层策略）。
+ * 换成国内云服务商或 OpenAI 官方，只要改环境变量即可（见 docs/system-design.md §6.7 的引擎选择）。
  *
  * 环境变量：
  *   TTS_BASE_URL  默认 http://127.0.0.1:8880/v1
@@ -31,6 +31,14 @@ export interface TtsProvider {
   readonly label: string
   listVoices(): Promise<VoiceInfo[]>
   synthesize(text: string, voice: string, rate: number, format: string): Promise<SynthResult>
+  /**
+   * 引擎实际能产出的格式；返回 null 表示不支持。
+   *
+   * 缺省表示"请求什么就产什么"（本地 OpenAI 兼容上游）。
+   * Edge 这类只支持有限格式的引擎必须实现它，否则缓存扩展名、Content-Type
+   * 与实际字节会对不上（审查发现：MP3 字节被写进 .wav 并按 audio/wav 返回）。
+   */
+  resolveFormat?(format: string): { format: string; contentType: string } | null
 }
 
 const BASE = (process.env.TTS_BASE_URL ?? 'http://127.0.0.1:8880/v1').replace(/\/+$/, '')
