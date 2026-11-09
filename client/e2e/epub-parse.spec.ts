@@ -85,7 +85,7 @@ test.describe('EPUB 解析（PA-09 ~ PA-14）', () => {
 
     // 章节在 OEBPS/ch1.xhtml，图片写 ../images/<唯一名>.png，
     // 实际也放在 OEBPS/images/<唯一名>.png（fixture 默认自洽）。
-    // 不写死文件名：缺陷 D-T01 让同名图片的第二本导入必然 500。
+    // 这里用默认的随机文件名，只为验路径解析，不牵扯"两本同名图片"（那是 D-T01 的事）
     const buf = await makeEpub({ title: '相对路径书' })
     await importEpub(page, buf, 'relpath.epub')
     await expect(page.locator('.book-card')).toHaveCount(1, { timeout: 30_000 })
@@ -237,7 +237,7 @@ test.describe('EPUB 解析（PA-09 ~ PA-14）', () => {
     expect(imgPara!.text).toBe('')
   })
 
-  test('★★ D-T01（真机复现）两本同名图片的 EPUB，第二本导入直接 500', async ({ page }) => {
+  test('★★ D-T01 两本同名图片的 EPUB 都能导入（image_id 已改复合主键）', async ({ page }) => {
     await registerFresh(page)
 
     // 两本书用**完全相同**的包内图片路径 —— EPUB 里 images/cover.jpg 这种命名极常见
@@ -247,8 +247,8 @@ test.describe('EPUB 解析（PA-09 ~ PA-14）', () => {
 
     // ★ 正文必须不同：`hashContent`（client/src/features/parse/index.ts:156-161）
     // 把 imageRefs 的 src 也算进去，若正文与图片路径都相同，
-    // 两次导入的 contentHash 一致，会**先**撞上导入去重（409 CONFLICT_DOCUMENT_DUPLICATE），
-    // 根本走不到 image_id 主键那一步。这里要验的正是后面那个。
+    // 两次导入的 contentHash 一致，会撞上导入去重（409 CONFLICT_DOCUMENT_DUPLICATE）
+    // 而**不是**走到"同名图片"这条路上。这里要验的正是后面那个。
     const first = await makeEpub({
       title: '第一本',
       imageName: name,
@@ -260,7 +260,13 @@ test.describe('EPUB 解析（PA-09 ~ PA-14）', () => {
     await expect(page.locator('.book-card')).toHaveCount(1, { timeout: 30_000 })
 
     // 在真实浏览器里再导一本：正文不同（哈希不同，过了去重），
-    // 但客户端算出的 imageId 会与上一本完全相同
+    // 但客户端算出的 imageId 与上一本完全相同 —— 它只由 src + paraIndex 决定
+    // （client/src/features/parse 里的 clientImageId）。
+    //
+    // 原先这里钉的是"第二本必然 500"，因为 T_ImageResource 曾把 image_id 当全库主键。
+    // 8848f0e 已把主键改成 (doc_id, image_id) 并加了旧库迁移，缺陷 D-T01 修好了，
+    // 所以断言反过来：两本都得进得去，且各自的图片互不覆盖。
+    // 服务端侧的回归用例是 server/test/cross-document-imageid.test.ts。
     const second = await makeEpub({
       title: '第二本',
       imageName: name,
@@ -270,15 +276,11 @@ test.describe('EPUB 解析（PA-09 ~ PA-14）', () => {
     })
     await importEpub(page, second, 'second.epub')
 
-    // 现状：撞 `T_ImageResource.image_id` 全库主键 → 服务端 500，
-    // 前端把它显示成服务端的通用错误话术。书名与正文都不同也躲不掉。
-    await expect(page.locator('.parse-bar')).toContainText('服务端出错', { timeout: 30_000 })
-    await expect(page.locator('.parse-bar')).not.toContainText('已经在书架里')
-    // 书架里仍然只有一本 —— 第二本压根没进去
-    await expect(page.locator('.book-card')).toHaveCount(1)
-
-    // 这条用例**如实钉住当前行为**，不改产品代码：
-    // 修法涉及 schema（image_id 需要复合主键或加 docId 前缀）与接口契约，
-    // 属项目组决策。修好后把上面的断言改成"两本都进得去"即可。
+    await expect(page.locator('.parse-bar')).toContainText('导入完成：second.epub', {
+      timeout: 30_000,
+    })
+    await expect(page.locator('.parse-bar')).not.toContainText('服务端出错')
+    // 两本都在书架上 —— 第二本没有因为图片路径撞车被挡在门外
+    await expect(page.locator('.book-card')).toHaveCount(2)
   })
 })

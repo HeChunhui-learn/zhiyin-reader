@@ -47,7 +47,8 @@ export const PNG_1X1_B64 =
   'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNkYPhfDwAChwGA60e6kgAAAABJRU5ErkJggg=='
 
 export async function makeEpub(opts: EpubFixtureOptions = {}): Promise<Buffer> {
-  // 唯一的图片文件名，避开缺陷 D-T01（见 imageHref 的说明）
+  // 默认给个不重名的图片文件名：大多数用例只导一本，重名与否无所谓；
+  // 想验"两本同名图片"的（D-T01）显式传 imageName 即可。
   const uniq = `fig_${Date.now().toString(36)}_${Math.floor(Math.random() * 1e6).toString(36)}`
   const imageName = opts.imageName ?? `${uniq}.png`
 

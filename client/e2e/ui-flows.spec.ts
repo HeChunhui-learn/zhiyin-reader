@@ -314,15 +314,18 @@ test.describe('阅读界面（ReaderView）', () => {
     await expect.poll(sizeOf).toBe(before)
   })
 
-  test('★ 跟读按钮启动后进入播放态（降级到浏览器发声也算通过）', async ({ page }) => {
+  test('★ 跟读按钮启动后进入播放态（降级到设备发声也算通过）', async ({ page }) => {
     await loginAsDemo(page)
     await openDemoBook(page)
     const bar = page.locator('.playbar')
 
     // 本机没装 Kokoro → 应当给出降级说明。
-    // 注意条上有**两个** .pb-note：音色缺失数量 + 降级说明（PlaybackBar.tsx:125/134），
-    // 所以按文字定位，不能只取 .pb-note。
-    await expect(bar.locator('.pb-note').filter({ hasText: '已降级为浏览器发声' })).toBeVisible()
+    // 注意条上可能有**两个** .pb-note：音色缺失数量 + 降级说明
+    // （PlaybackBar.tsx:121-135），所以按文字定位，不能只取 .pb-note。
+    await expect(bar.locator('.pb-note').filter({ hasText: '已降级为设备发声' })).toBeVisible()
+    // 目录里 8 个中文音色本机都没装。本地引擎整个没起来时没有服务端引擎条目能
+    // 认领这批音色，8848f0e 曾把它们一起丢掉（下拉框空着、这条提示也不出现）。
+    // engines/index.ts 现在把它们挂到浏览器原生那条兜底项上，这里钉住。
     await expect(bar.locator('.pb-note').filter({ hasText: '需安装离线音色包' })).toBeVisible()
 
     /**

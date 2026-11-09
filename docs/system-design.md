@@ -157,7 +157,7 @@ TTS 上游（二选一，经服务端代理）
 | `T_Document` | 文档元数据 | 外键统一叫 `owner_id`；`(owner_id, content_hash)` 唯一，用于重复导入去重 |
 | `T_Paragraph` | 段落 | `para_index` 文档内段落序号；`para_type = h1 / h2 / p / img` |
 | `T_Sentence` | 句子边界 | 段内 `sentence_index`、`start_offset`、`end_offset`；由前端切分后上传 |
-| `T_ImageResource` | 图片引用 | `image_id` 客户端生成；`src` 原文路径、`alt` 替代文本、`remote_url` 服务端副本 |
+| `T_ImageResource` | 图片引用 | **复合主键 `(doc_id, image_id)`**：`image_id` 由客户端按 `src + paraIndex` 算，只保证文档内唯一；`src` 原文路径、`alt` 替代文本、`remote_url` 服务端副本 |
 | `T_ReadingProgress` | 阅读进度 | **每设备一行**；锚点四列展开；`last_sentence_index` 是本机瞬态，不参与跨端同步 |
 | `T_SyncRecord` | 同步记录 | `conflict_json` 保存冲突信封；未决冲突从这里读回 |
 | `T_Bookmark` | 书签 | 客户端生成 `bookmark_id`；软删除墓碑 `deleted_at`；`sort_order` 拖动顺序；`chapter_title` 所属章节 |
@@ -431,7 +431,8 @@ type Anchor = {
 2. 服务端引擎合成音频后用 `<audio>` 播放，**以 `ended` 事件推进游标**；
    浏览器引擎用 `SpeechSynthesisUtterance`，**以 `onend` 事件推进**。
 3. 每次朗读预取后面 2 句；客户端命中 IndexedDB 时连请求都不发。
-4. 引擎 / 音色不可用时自动降级：服务端引擎 → 浏览器原生；界面显示「已降级为浏览器发声」。
+4. 引擎 / 音色不可用时自动降级：服务端引擎 → 设备原生（Android 壳）→ 浏览器原生；
+   界面显示「已降级为设备发声」。
 5. 读者点正文任意句子会接管游标；跟读中改语速只影响下一句（`rateRef`），不重念当前句。
 
 ### 6.4 同步与冲突

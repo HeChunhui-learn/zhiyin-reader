@@ -36,7 +36,15 @@ export interface EnginesLoadResult {
   serverEngineDown: boolean
 }
 
-const BROWSER_OPTION = (): EngineOption => {
+/**
+ * 浏览器原生那条路。
+ *
+ * `extra` 是本地引擎整个没起来时**没有任何服务端引擎条目能认领**的目录音色。
+ * 不挂到这条兜底项上的话，降级状态下音色下拉框只剩系统嗓音，读者分不清
+ * 是"这台机器没装离线包"还是"这个引擎根本没有"（契约 §9.4）。
+ * 它们只进 voiceCatalog（置灰展示），不进 voices，永远选不了。
+ */
+const BROWSER_OPTION = (extra: VoiceOption[] = []): EngineOption => {
   const e = new BrowserTtsEngine()
   return {
     id: e.id,
@@ -46,7 +54,7 @@ const BROWSER_OPTION = (): EngineOption => {
     realAudio: false,
     voices: e.voices,
     // 浏览器原生没有"离线音色包"这回事，系统装了哪些中文嗓音就是哪些
-    voiceCatalog: e.voices,
+    voiceCatalog: extra.length > 0 ? [...e.voices, ...extra] : e.voices,
   }
 }
 
@@ -114,10 +122,11 @@ export async function loadEngines(): Promise<EnginesLoadResult> {
 
     const localUp = catalog?.engineAvailable ?? false
     // 等过了 whenBrowserVoicesReady 再建，这一步才拿得到浏览器填好的嗓音
-    const browser = BROWSER_OPTION()
     const browserSupported = isBrowserTtsSupported()
 
     const usable: EngineOption[] = []
+    /** 没装的音色有没有被某条服务端引擎认领 —— 认领了就别重复挂到浏览器那条上 */
+    let missingClaimed = false
     for (const e of res.engines.filter((engine) => engine.available)) {
       /**
        * 服务端也会列一条 browser-native，但它的 voices 恒为 `[]` ——
@@ -129,6 +138,7 @@ export async function loadEngines(): Promise<EnginesLoadResult> {
       // 本地引擎活着 → 挂它名下；本地引擎没起来（它按契约 §9.1 不进列表）→
       // 挂到这条云端引擎名下，读者才知道还有哪些音色是"没装包"而不是"没有"
       const attach = catalog?.engine === e.engine ? localUp : !localUp
+      if (attach && missingZh.length > 0) missingClaimed = true
       usable.push({
         id: e.engine,
         label: e.label,
@@ -138,6 +148,15 @@ export async function loadEngines(): Promise<EnginesLoadResult> {
         voiceCatalog: attach ? [...voices, ...missingZh] : voices,
       })
     }
+
+    /*
+     * 本地引擎整个没起来、又没有任何云端引擎在场时（默认配置就是这条：
+     * 没装 Kokoro 的机器上 /api/tts/engines 只剩一条 browser-native，被上面的
+     * continue 跳掉），目录里的音色就没人认领了。这时候挂在浏览器原生这条兜底项上，
+     * 否则降级状态下音色下拉框是空的，控制条那条"* 个音色需安装离线音色包"的
+     * 提示也不会出现 —— 读者既看不到有更好的音色，也不知道差在哪（契约 §9.4）。
+     */
+    const browser = BROWSER_OPTION(missingClaimed ? [] : missingZh)
 
     // 设备原生 TTS：Android 壳里唯一能用的降级路径
     if (nativeVoices.length > 0 && !usable.some((o) => o.id === NATIVE_ENGINE_ID)) {

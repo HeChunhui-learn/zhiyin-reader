@@ -262,7 +262,7 @@ server/
 4. **游标由真实播放事件驱动，不要引入定时器**。用定时器会导致高亮与音频不对应。
 5. 改语速不进播放循环的依赖数组，走 `rateRef`，下一句生效；换引擎 / 音色仍会重启循环。
 6. 降级链自动：`GET /api/tts/engines` 里 `available=false` 的引擎不进前端列表；
-   只剩浏览器原生时显示「已降级为浏览器发声」。
+   只剩浏览器原生时显示「已降级为设备发声」。
 7. 服务端合成同时最多 2 个、最多排 8 个；超了 429。上游失败 502、超时 504。
 8. `TTS_PROVIDER=edge` 时服务端用 Edge 适配器；客户端只认 `/api/tts/*`，不需要换包。
 
@@ -404,7 +404,7 @@ CI（GitHub Actions）三个 job 并行：`static`（两端类型检查 + 前端
 | 合并判定 | `sync-merge.test.ts`、`sync-bookmark.test.ts` | 冲突行为不报错，只能靠断言守 |
 | 软删除逻辑 | 墓碑 `updatedAt` 用例 | 不刷新就永远拉不到墓碑 |
 | 窗口化几何 / 字号 | `render-virtualwindow.test.ts` | 短文档必须仍全量渲染 |
-| 图片 `imageId` 或主键 | `cross-document-imageid.test.ts` | 已知缺陷的钉住用例 |
+| 图片 `imageId` 或主键 | `cross-document-imageid.test.ts`、`e2e/epub-parse.spec.ts` 的 D-T01 | 主键是 `(doc_id, image_id)`，两本同名图各存各的 |
 | 零宽字符表 | `readalong-zerowidth.test.ts` | 两处口径必须一致 |
 | 界面类名 | `e2e/ui-flows.spec.ts` | 类名是全局契约 |
 | 进度上报触发方式 | `e2e/sync-two-devices.spec.ts` | 只在 `.reader-scroll` 的 scroll 事件里上报 |
