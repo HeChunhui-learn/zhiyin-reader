@@ -9,6 +9,7 @@ import {
   type TtsEngine,
 } from './engines'
 import { readReadAlongPrefs, writeReadAlongPrefs } from './readAlongPrefs'
+import { speakWithPreload } from './speakWithPreload'
 import { NATIVE_ENGINE_ID } from './engines/nativeTts'
 
 /**
@@ -167,24 +168,11 @@ export function useReadAlong(docId: string, sentences: Sentence[]): ReadAlongApi
       for (let i = start; i < sentences.length; i++) {
         if (ac.signal.aborted) return
 
-        /*
-         * 先把后面几句送去合成，**再**开始念这一句。
-         *
-         * 原来这一步放在 speak 之后：等于等这一句念完才去请求下一句，
-         * 于是每句之间必然空一段「合成时间」（服务端 Kokoro 在 CPU 上合成
-         * 往往比念得还慢，短句要一两秒、长句十几秒），听感就是
-         * 「一句一暂停」。挪到前面之后，播放与合成并行，句间几乎无缝。
-         */
-        if (i + 1 < sentences.length) {
-          activeEngine.preload(
-            sentences.slice(i + 1, i + 4).map((s) => s.text),
-            { voice, rate: rateRef.current },
-          )
-        }
-
         try {
-          await activeEngine.speak(
+          await speakWithPreload(
+            activeEngine,
             sentences[i].text,
+            sentences.slice(i + 1, i + 4).map(sentence => sentence.text),
             { voice, rate: rateRef.current },
             ac.signal,
           )

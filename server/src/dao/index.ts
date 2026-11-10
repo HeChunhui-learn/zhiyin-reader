@@ -317,6 +317,10 @@ export class DataAccessLibrary {
       .all(docId) as ParagraphRow[]
   }
 
+  listParagraphRange(docId: string, offset: number, limit: number): ParagraphRow[] {
+    return getDb().prepare('SELECT * FROM T_Paragraph WHERE doc_id = ? ORDER BY para_index ASC LIMIT ? OFFSET ?').all(docId, limit, offset) as ParagraphRow[]
+  }
+
   countParagraphs(docId: string): number {
     const row = getDb()
       .prepare('SELECT COUNT(*) AS n FROM T_Paragraph WHERE doc_id = ?')

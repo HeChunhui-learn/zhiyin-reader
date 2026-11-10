@@ -1,7 +1,7 @@
 import type { FastifyInstance } from 'fastify'
 import { requireUserId } from '../auth/require'
 import { ApiError, E } from '../errors'
-import { listEngines, listVoices, synthesize } from '../tts'
+import { cachedSpeech, defaultEngineId, listEngines, listVoices, synthesize } from '../tts'
 
 /**
  * 契约 §9：TTS 代理。
@@ -68,6 +68,14 @@ export default async function ttsRoutes(app: FastifyInstance) {
     }
 
     if (fields.length) throw new ApiError(400, 'VALIDATION_FAILED', message, { fields })
+
+    // 所有命中同样经过登录校验；只复用本引擎已生成的缓存文件。
+    if (typeof voice !== 'string' || !voice.trim()) throw E.validation(['voice'])
+    const cached = await cachedSpeech({ text: text as string, voice, rate, format, engine: engine ?? defaultEngineId })
+    if (cached) {
+      return reply.header('Content-Type', cached.contentType).header('X-Cache', 'hit')
+        .header('Cache-Control', 'private, max-age=604800').send(cached.buffer)
+    }
 
     // 引擎不传就用服务端认定的默认引擎
     const engines = await listEngines()

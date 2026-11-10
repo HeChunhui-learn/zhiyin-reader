@@ -1,6 +1,7 @@
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs'
-import { join } from 'node:path'
-import { SERVER_ROOT } from '../db'
+import { mkdir, readFile, writeFile, rename, rm } from 'node:fs/promises'
+import { randomUUID } from 'node:crypto'
+import { dirname, join } from 'node:path'
+import { DB_PATH } from '../db'
 import { E } from '../errors'
 import { ttsCacheKey } from './cacheKey'
 import { edgeProvider } from './edgeProvider'
@@ -16,7 +17,7 @@ import { KOKORO_VOICES, MISSING_VOICE_NOTE } from './voiceCatalog'
  *   · 上游挂了返回 502 UPSTREAM_TTS_FAILED，超时 504，排队超限 429
  */
 
-const CACHE_DIR = join(SERVER_ROOT, 'data', 'tts')
+const CACHE_DIR = join(dirname(DB_PATH), 'tts')
 
 /** 同时进行的合成请求上限；超出的排队，队列也满了就 429 */
 const MAX_CONCURRENT = 2
@@ -49,7 +50,7 @@ const FORMAT_MIME: Record<string, string> = {
 
 let probe: { at: number; ok: boolean; voices: VoiceInfo[] } | null = null
 
-async function probeProvider(): Promise<{ ok: boolean; voices: VoiceInfo[] }> {
+async function probeProviderUnshared(): Promise<{ ok: boolean; voices: VoiceInfo[] }> {
   const now = Date.now()
   if (probe && now - probe.at < PROBE_TTL_MS) {
     return { ok: probe.ok, voices: probe.voices }
@@ -64,6 +65,15 @@ async function probeProvider(): Promise<{ ok: boolean; voices: VoiceInfo[] }> {
     return { ok: false, voices: [] }
   }
 }
+
+let probing: Promise<{ ok: boolean; voices: VoiceInfo[] }> | null = null
+async function probeProvider(): Promise<{ ok: boolean; voices: VoiceInfo[] }> {
+  if (probing) return probing
+  probing = probeProviderUnshared().finally(() => { probing = null })
+  return probing
+}
+
+export const defaultEngineId = provider.id
 
 export interface EngineInfo {
   engine: string
@@ -208,10 +218,6 @@ function release(): void {
 
 /* ------------------------------------------------------------------ 缓存 */
 
-function ensureCacheDir(): void {
-  if (!existsSync(CACHE_DIR)) mkdirSync(CACHE_DIR, { recursive: true })
-}
-
 function cachePath(key: string, format: string): string {
   return join(CACHE_DIR, `${key}.${format}`)
 }
@@ -224,62 +230,72 @@ export interface SynthOutput {
   cache: 'hit' | 'miss'
 }
 
-export async function synthesize(opts: {
+export interface SynthOptions {
   text: string
   voice: string
   rate: number
   format: string
   engine: string
-}): Promise<SynthOutput> {
-  const { text, voice, rate, format, engine } = opts
+}
 
-  if (engine === BROWSER_ENGINE) {
-    // 浏览器原生那条路由前端直接调 Web Speech API，不该走到服务端
-    throw E.validation(['engine'])
-  }
-
-  /*
-   * 引擎可能只支持有限格式（Edge 只有 mp3 / opus）。
-   * 在碰缓存之前先问引擎要"实际格式"，缓存扩展名与 Content-Type 都以它为准；
-   * 不支持的格式直接 400，不能把 MP3 字节写进 .wav 再按 audio/wav 返回。
-   */
+function resolve(opts: SynthOptions) {
+  if (opts.engine !== provider.id) throw E.validation(['engine'])
   const resolved = provider.resolveFormat
-    ? provider.resolveFormat(format)
-    : { format, contentType: FORMAT_MIME[format] ?? 'audio/mpeg' }
+    ? provider.resolveFormat(opts.format)
+    : { format: opts.format, contentType: FORMAT_MIME[opts.format] ?? 'audio/mpeg' }
   if (!resolved) throw E.validation(['format'])
+  return resolved
+}
 
-  const effectiveFormat = resolved.format
-  const contentType = resolved.contentType
-  const key = ttsCacheKey(engine, voice, rate, text)
-  const file = cachePath(key, effectiveFormat)
+/** 缓存文件与音色目录探测独立，已有音频不要求上游在线。 */
+export async function cachedSpeech(opts: SynthOptions): Promise<SynthOutput | null> {
+  if (opts.engine !== provider.id) return null
+  const resolved = resolve(opts)
+  const file = cachePath(ttsCacheKey(opts.engine, opts.voice, opts.rate, opts.text), resolved.format)
+  try {
+    const buffer = await readFile(file)
+    return buffer.length ? { buffer, contentType: resolved.contentType, cache: 'hit' } : null
+  } catch { return null }
+}
 
-  if (existsSync(file)) {
-    return { buffer: readFileSync(file), contentType, cache: 'hit' }
-  }
+const synthesizing = new Map<string, Promise<SynthOutput>>()
 
+export function synthesize(opts: SynthOptions): Promise<SynthOutput> {
+  const resolved = resolve(opts)
+  const key = `${ttsCacheKey(opts.engine, opts.voice, opts.rate, opts.text)}.${resolved.format}`
+  const existing = synthesizing.get(key)
+  if (existing) return existing
+  const task = synthesizeUnshared(opts).finally(() => synthesizing.delete(key))
+  synthesizing.set(key, task)
+  return task
+}
+
+async function synthesizeUnshared(opts: SynthOptions): Promise<SynthOutput> {
+  const cached = await cachedSpeech(opts)
+  if (cached) return cached
+  const resolved = resolve(opts)
   await acquire()
   try {
-    // 排队期间可能已经被别的请求合成好了，再查一次
-    if (existsSync(file)) {
-      return { buffer: readFileSync(file), contentType, cache: 'hit' }
-    }
-
     let result
     try {
-      result = await provider.synthesize(text, voice, rate, effectiveFormat)
-    } catch (e) {
-      const msg = e instanceof Error ? e.message : String(e)
-      if (/timeout|aborted/i.test(msg)) throw E.upstreamTimeout(engine)
-      // 上游挂了要把探测缓存清掉，下次 /engines 才能如实报告
+      result = await provider.synthesize(opts.text, opts.voice, opts.rate, resolved.format)
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error)
+      if (/timeout|aborted/i.test(message)) throw E.upstreamTimeout(opts.engine)
       probe = null
-      throw E.upstreamTtsFailed(engine)
+      throw E.upstreamTtsFailed(opts.engine)
     }
-
-    ensureCacheDir()
-    writeFileSync(file, result.buffer)
-    // 用 resolved 的 contentType，而不是 provider 返回的：缓存命中与未命中必须一致
-    return { buffer: result.buffer, contentType, cache: 'miss' }
-  } finally {
-    release()
-  }
+    const file = cachePath(ttsCacheKey(opts.engine, opts.voice, opts.rate, opts.text), resolved.format)
+    const temporary = `${file}.${randomUUID()}.tmp`
+    try {
+      await mkdir(CACHE_DIR, { recursive: true })
+      await writeFile(temporary, result.buffer)
+      await rename(temporary, file)
+    } catch {
+      // 缓存不可写不应中断已经合成成功的音频。
+    } finally {
+      await rm(temporary, { force: true }).catch(() => {})
+    }
+    return { buffer: result.buffer, contentType: resolved.contentType, cache: 'miss' }
+  } finally { release() }
 }

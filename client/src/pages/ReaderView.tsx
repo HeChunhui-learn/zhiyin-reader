@@ -1,8 +1,9 @@
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import { useNavigate, useParams, useSearchParams } from 'react-router-dom'
-import { ApiError, api, type ContentImageRef, type DocumentDetail } from '../api/client'
+import { ApiError, type ContentImageRef, type DocumentDetail } from '../api/client'
 import type { Paragraph } from '../models/types'
-import { splitSentences, type Sentence } from '../features/readalong/splitSentences'
+import { type Sentence } from '../features/readalong/splitSentences'
+import { loadReaderDocument } from '../features/cache/readerDocument'
 import { useReadAlong } from '../features/readalong/useReadAlong'
 import { useProgress } from '../features/sync/useProgress'
 import { useBookmarks } from '../features/sync/useBookmarks'
@@ -58,6 +59,8 @@ export default function ReaderView() {
   const jumpPara = searchParams.get('para')
 
   const [book, setBook] = useState<DocumentDetail | null>(null)
+  const [sentences, setSentences] = useState<Sentence[]>([])
+  const loadSequence = useRef(0)
   const [paragraphs, setParagraphs] = useState<Paragraph[]>([])
   const [imageRefs, setImageRefs] = useState<ContentImageRef[]>([])
   const [loading, setLoading] = useState(true)
@@ -106,29 +109,29 @@ export default function ReaderView() {
   }, [ready, user, navigate])
 
   const load = useCallback(async () => {
+    const sequence = ++loadSequence.current
     setLoading(true)
     setError('')
     try {
-      const [doc, content] = await Promise.all([
-        api.getDocument(docId),
-        api.getContent(docId),
-      ])
+      const { doc, content, sentences } = await loadReaderDocument(docId)
+      if (sequence !== loadSequence.current) return
+      setSentences(sentences)
       setBook(doc)
       setParagraphs(content.paragraphs)
       setImageRefs(content.imageRefs)
     } catch (e) {
-      setError(e instanceof ApiError ? e.message : '加载正文失败，请稍后重试。')
+      if (sequence === loadSequence.current) setError(e instanceof ApiError ? e.message : '加载正文失败，请稍后重试。')
     } finally {
-      setLoading(false)
+      if (sequence === loadSequence.current) setLoading(false)
     }
   }, [docId])
 
   useEffect(() => {
     if (user) void load()
+    return () => { loadSequence.current++ }
   }, [load, user])
 
   /** 句子由前端切分（docs/system-design.md §7 裁决 1：解析在前端） */
-  const sentences = useMemo(() => splitSentences(paragraphs), [paragraphs])
   /** 跟读编排：引擎选择、游标推进、预加载、降级都在这里面 */
   const ra = useReadAlong(docId, sentences)
 

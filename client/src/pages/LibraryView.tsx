@@ -66,6 +66,9 @@ export default function LibraryView() {
   const activeSideRef = useRef<HTMLButtonElement | null>(null)
   const [keyword, setKeyword] = useState('')
   const [books, setBooks] = useState<Awaited<ReturnType<typeof api.listDocuments>>['items']>([])
+  const [bookPage, setBookPage] = useState(1)
+  const [bookTotal, setBookTotal] = useState(0)
+  const loadVersion = useRef(0)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
   const [stage, setStage] = useState<ImportStage>({ kind: 'idle' })
@@ -156,25 +159,30 @@ export default function LibraryView() {
 
   const load = useCallback(async () => {
     if (!user || nav === 'bookmarks') return
+    const requestVersion = ++loadVersion.current
     setLoading(true)
     setError('')
     setPendingDelete(null)
     try {
-      const { items } = await api.listDocuments({
+      const { items, total } = await api.listDocuments({
+        page: bookPage, pageSize: 20,
         keyword: keyword.trim() || undefined,
         category,
       })
+      if (requestVersion !== loadVersion.current) return
+      if (!items.length && bookPage > 1) { setBookPage(bookPage - 1); return }
+      setBookTotal(total)
       setBooks(items)
     } catch (e) {
-      setError(e instanceof ApiError ? e.message : '加载书架失败，请稍后重试。')
+      if (requestVersion === loadVersion.current) setError(e instanceof ApiError ? e.message : '加载书架失败，请稍后重试。')
     } finally {
-      setLoading(false)
+      if (requestVersion === loadVersion.current) setLoading(false)
     }
-  }, [user, keyword, category, nav])
+  }, [user, keyword, category, nav, bookPage])
 
   useEffect(() => {
     const t = window.setTimeout(() => void load(), keyword ? 300 : 0)
-    return () => window.clearTimeout(t)
+    return () => { window.clearTimeout(t); loadVersion.current++ }
   }, [load, keyword])
 
   /* B2：书签分类走跨文档总览接口，不再走文档列表 */
@@ -588,7 +596,7 @@ export default function LibraryView() {
           className="input shelf-search"
           placeholder="书名／作者／正文全文检索"
           value={keyword}
-          onChange={(e) => setKeyword(e.target.value)}
+          onChange={(e) => { setKeyword(e.target.value); setBookPage(1) }}
         />
         <button className="btn btn-primary" onClick={() => fileRef.current?.click()}>
           导入文档
@@ -632,7 +640,7 @@ export default function LibraryView() {
                 key={n.key}
                 ref={nav === n.key ? activeSideRef : undefined}
                 className={'side-item' + (nav === n.key ? ' active' : '')}
-                onClick={() => setNav(n.key)}
+                onClick={() => { setNav(n.key); setBookPage(1) }}
               >
                 <LineIcon name={n.icon} size={17} />
                 <span>{n.label}</span>
@@ -1096,6 +1104,13 @@ export default function LibraryView() {
                 </article>
               ))}
             </div>
+          )}
+          {nav !== 'bookmarks' && !loading && !error && bookTotal > 20 && (
+            <nav className="marks-pager" aria-label="书架分页">
+              <span>第 {bookPage} / {Math.ceil(bookTotal / 20)} 页 · 共 {bookTotal} 本</span>
+              <button className="btn btn-ghost btn-sm" disabled={bookPage <= 1} onClick={() => setBookPage(p => p - 1)}>上一页</button>
+              <button className="btn btn-ghost btn-sm" disabled={bookPage >= Math.ceil(bookTotal / 20)} onClick={() => setBookPage(p => p + 1)}>下一页</button>
+            </nav>
           )}
         </main>
       </div>

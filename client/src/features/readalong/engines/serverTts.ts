@@ -41,6 +41,7 @@ export class ServerTtsEngine implements TtsEngine {
   private player = new AudioPlayer()
   /** 正在预取中的 cacheKey，避免同一个键重复发请求 */
   private inflight = new Map<string, Promise<Blob | null>>()
+  private prefetched = new WeakSet<Promise<Blob | null>>()
 
   constructor(
     id: string,
@@ -65,7 +66,12 @@ export class ServerTtsEngine implements TtsEngine {
 
     const existing = this.inflight.get(key)
     if (existing) {
-      return existing.then((b) => {
+      return existing.catch(error => {
+        if (!this.prefetched.has(existing) || !isRetryable(error)) throw error
+        // 预取没有重试预算；现在真正播到这一句，应转入前台的有界重试。
+        if (this.inflight.get(key) === existing) this.inflight.delete(key)
+        return this.ensureBlob(text, opts)
+      }).then((b) => {
         if (b) return b
         throw new Error('音频获取失败')
       })
@@ -81,7 +87,9 @@ export class ServerTtsEngine implements TtsEngine {
     })()
 
     this.inflight.set(key, task)
-    void task.finally(() => this.inflight.delete(key))
+    // finally 会另外产生一个拒绝 Promise，不能将它丢弃造成未处理异常。
+    const clear = () => { if (this.inflight.get(key) === task) this.inflight.delete(key) }
+    void task.then(clear, clear)
     return task.then((b) => {
       if (b) return b
       throw new Error('音频获取失败')
@@ -104,8 +112,9 @@ export class ServerTtsEngine implements TtsEngine {
         await audioCachePut(this.docId, key, blob)
         return blob
       })()
+      this.prefetched.add(task)
       this.inflight.set(key, task)
-      void task.catch(() => null).finally(() => this.inflight.delete(key))
+      void task.catch(() => null).finally(() => { if (this.inflight.get(key) === task) this.inflight.delete(key) })
     }
   }
 

@@ -30,7 +30,7 @@ export default defineConfig({
     strictPort: true,
     proxy: {
       // 服务端在 3000，前端开发时直接 /api 转发过去（R1 起生效）
-      '/api': { target: 'http://localhost:3000', changeOrigin: true },
+      '/api': { target: process.env.ZHIYIN_API_TARGET || 'http://localhost:3000', changeOrigin: true },
     },
   },
 })

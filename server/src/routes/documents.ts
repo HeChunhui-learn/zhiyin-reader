@@ -3,6 +3,7 @@ import type { FastifyInstance } from 'fastify'
 import { requireUserId } from '../auth/require'
 import { dal, now, type DocumentRow } from '../dao'
 import { E } from '../errors'
+import { cleanupDocumentResources, withDocumentResourceLock } from './resources'
 
 /** 契约 §4.1：支持的格式 */
 const FORMATS = new Set(['EPUB', 'TXT', 'MD'])
@@ -70,8 +71,8 @@ export default async function documentRoutes(app: FastifyInstance) {
     const userId = requireUserId(req)
     const q = req.query
 
-    const page = Math.max(1, Number(q.page ?? 1) || 1)
-    const pageSize = Math.min(100, Math.max(1, Number(q.pageSize ?? 20) || 20))
+    const page = Math.max(1, Math.floor(Number(q.page ?? 1)) || 1)
+    const pageSize = Math.min(100, Math.max(1, Math.floor(Number(q.pageSize ?? 20)) || 20))
     const category = q.category ?? 'all'
 
     const { total, rows } = dal.searchDocuments(userId, {
@@ -124,11 +125,11 @@ export default async function documentRoutes(app: FastifyInstance) {
     if (!doc) throw E.notFound()
     if (doc.owner_id !== userId) throw E.forbiddenNotOwner()
 
-    const all = dal.listParagraphsByDocument(doc.doc_id)
-    const from = Math.max(0, Number(req.query.from ?? 0) || 0)
-    const to = Math.min(all.length - 1, Number(req.query.to ?? all.length - 1))
+    const total = dal.countParagraphs(doc.doc_id)
+    const from = Math.max(0, Math.floor(Number(req.query.from ?? 0)) || 0)
+    const to = Math.min(total - 1, Math.floor(Number(req.query.to ?? total - 1)) || 0)
 
-    const slice = from > to ? [] : all.slice(from, to + 1)
+    const slice = from > to ? [] : dal.listParagraphRange(doc.doc_id, from, to - from + 1)
     const paragraphs = slice.map((p) => ({
       paraIndex: p.para_index,
       // ★ 补充字段：契约 §4.5 的示例里没有 type，但没有它渲染不出标题
@@ -154,13 +155,13 @@ export default async function documentRoutes(app: FastifyInstance) {
       docId: doc.doc_id,
       from,
       to,
-      totalParagraphs: all.length,
+      totalParagraphs: total,
       paragraphs,
       imageRefs,
     }
 
     const etag = `W/"${createHash('sha1')
-      .update(`${doc.doc_id}:${doc.content_hash ?? ''}:${from}:${to}:${all.length}`)
+      .update(`${doc.doc_id}:${doc.content_hash ?? ''}:${from}:${to}:${total}`)
       .digest('hex')
       .slice(0, 20)}"`
 
@@ -172,7 +173,26 @@ export default async function documentRoutes(app: FastifyInstance) {
   })
 
   /* ---------------------------------------- 契约 §4.1 创建文档（提交解析结果） */
-  app.post<{ Body: ImportBody }>('/api/documents', async (req, reply) => {
+  app.post<{ Body: ImportBody }>('/api/documents', {
+    schema: { body: {
+      type: 'object',
+      properties: {
+        fileFormat: { type: 'string' }, fileName: { type: 'string', minLength: 1, maxLength: 1024 },
+        fileSize: { type: 'integer', minimum: 0 }, contentHash: { type: 'string', maxLength: 256 },
+        title: { type: 'string', maxLength: 4096 }, author: { type: 'string', maxLength: 4096 },
+        paragraphs: { type: 'array', items: { type: 'object', properties: {
+          paraIndex: { type: 'integer', minimum: 0 }, type: { type: 'string' }, text: { type: 'string' },
+          sentences: { type: 'array', items: { type: 'object', properties: {
+            sentenceIndex: { type: 'integer', minimum: 0 }, startOffset: { type: 'integer', minimum: 0 }, endOffset: { type: 'integer', minimum: 0 },
+          } } },
+        } } },
+        imageRefs: { type: 'array', maxItems: 20000, items: { type: 'object', properties: {
+          imageId: { type: 'string', minLength: 1, maxLength: 200, pattern: '^[^/\\\\]+$' },
+          paraIndex: { type: 'integer', minimum: 0 }, src: { type: 'string' }, alt: { type: 'string' },
+        } } },
+      },
+    } },
+  }, async (req, reply) => {
     const userId = requireUserId(req)
     const b = req.body ?? {}
 
@@ -263,11 +283,14 @@ export default async function documentRoutes(app: FastifyInstance) {
     '/api/documents/:docId',
     async (req, reply) => {
       const userId = requireUserId(req)
-      const doc = dal.getDocumentById(req.params.docId)
-      if (!doc) throw E.notFound()
-      if (doc.owner_id !== userId) throw E.forbiddenNotOwner()
-      dal.deleteDocument(doc.doc_id)
-      return reply.code(204).send()
+      return withDocumentResourceLock(req.params.docId, async () => {
+        const doc = dal.getDocumentById(req.params.docId)
+        if (!doc) throw E.notFound()
+        if (doc.owner_id !== userId) throw E.forbiddenNotOwner()
+        await cleanupDocumentResources(doc.doc_id)
+        dal.deleteDocument(doc.doc_id)
+        return reply.code(204).send()
+      })
     },
   )
 

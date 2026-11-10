@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import type { Anchor, ConflictEnvelope } from '../api/client'
 
 export type Resolution = 'local' | 'remote' | 'both'
@@ -45,6 +45,25 @@ const SCOPE_LABEL: Record<string, string> = {
 }
 
 export default function ConflictDialog({ conflicts, onClose, onResolve }: Props) {
+  const onCloseRef = useRef(onClose)
+  onCloseRef.current = onClose
+  const dialogRef = useRef<HTMLDivElement>(null)
+  useEffect(() => {
+    const previous = document.activeElement as HTMLElement | null
+    const dialog = dialogRef.current
+    const focusable = () => Array.from(dialog?.querySelectorAll<HTMLElement>('button:not(:disabled), input:not(:disabled), [tabindex="0"]') ?? []).filter(element => !(element instanceof HTMLInputElement && element.type === 'radio') || element.checked)
+    focusable()[0]?.focus()
+    const onKey = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') { event.preventDefault(); onCloseRef.current() }
+      if (event.key !== 'Tab') return
+      const items = focusable()
+      const first = items[0], last = items[items.length - 1]
+      if (event.shiftKey && document.activeElement === first) { event.preventDefault(); last?.focus() }
+      else if (!event.shiftKey && document.activeElement === last) { event.preventDefault(); first?.focus() }
+    }
+    dialog?.addEventListener('keydown', onKey)
+    return () => { dialog?.removeEventListener('keydown', onKey); previous?.focus() }
+  }, [])
   const [choices, setChoices] = useState<Record<string, Resolution>>({})
 
   const keyOf = (c: ConflictEnvelope) => `${c.scope}:${c.key}:${c.serverVersion}`
@@ -52,9 +71,9 @@ export default function ConflictDialog({ conflicts, onClose, onResolve }: Props)
 
   return (
     <div className="modal-mask">
-      <div className="modal" role="dialog" aria-modal="true">
+      <div ref={dialogRef} className="modal" role="dialog" aria-modal="true" aria-labelledby="conflict-title">
         <header className="modal-head">
-          <h2>发现 {conflicts.length} 处同步冲突</h2>
+          <h2 id="conflict-title">发现 {conflicts.length} 处同步冲突</h2>
           <p className="modal-sub">
             服务端已按「不静默丢弃」原则保留了双方的数据，下面是它给出的裁决与差异。
           </p>

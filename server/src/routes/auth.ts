@@ -1,9 +1,10 @@
 import type { FastifyInstance } from 'fastify'
 import { randomUUID } from 'node:crypto'
 import { requireUserId } from '../auth/require'
-import { hashPassword, makeSalt, validateAccount, validatePassword, verifyPassword } from '../auth/password'
+import { hashPasswordAsync, makeSalt, validateAccount, validatePassword, verifyPasswordAsync } from '../auth/password'
 import { issueTokenPair, revokeRefreshToken, rotateRefreshToken } from '../auth/tokens'
 import { dal, now } from '../dao'
+import { getDb } from '../db'
 import { ApiError, E } from '../errors'
 
 /** 契约 §2：连续失败 5 次锁 15 分钟 */
@@ -27,6 +28,7 @@ export default async function authRoutes(app: FastifyInstance) {
   app.post<{ Body: RegisterBody }>('/api/auth/register', async (req, reply) => {
     const { account, password, nickname } = req.body ?? {}
 
+    if (nickname !== undefined && (typeof nickname !== 'string' || nickname.trim().length > 32)) throw E.validation(['nickname'])
     const accErr = validateAccount(account)
     const pwdErr = validatePassword(password)
     if (accErr || pwdErr) {
@@ -40,10 +42,13 @@ export default async function authRoutes(app: FastifyInstance) {
     if (dal.getUserByAccount(acc)) throw E.accountExists()
 
     const salt = makeSalt()
+    const passwordHash = await hashPasswordAsync(password as string, salt)
+    // 异步计算期间另一条注册请求可能已创建同名账号。
+    if (dal.getUserByAccount(acc)) throw E.accountExists()
     const user = dal.insertUser({
       user_id: `u_${randomUUID().replace(/-/g, '').slice(0, 12)}`,
       account: acc,
-      password_hash: hashPassword(password as string, salt),
+      password_hash: passwordHash,
       salt,
       nickname: (nickname ?? '').trim() || acc.split('@')[0],
       created_at: now(),
@@ -74,12 +79,16 @@ export default async function authRoutes(app: FastifyInstance) {
       throw E.accountLocked(user.locked_until)
     }
 
-    if (!verifyPassword(password, user.salt, user.password_hash)) {
+    if (!await verifyPasswordAsync(password, user.salt, user.password_hash)) {
       const lockedUntil = dal.recordLoginFailure(user.user_id, MAX_FAIL, LOCK_MS)
       if (lockedUntil) throw E.accountLocked(lockedUntil)
       throw E.invalidCredential()
     }
 
+    // 密码计算在异步线程完成，期间可能发生改密或锁定，签发前必须重读。
+    const current = dal.getUserById(user.user_id)
+    if (!current || current.password_hash !== user.password_hash || current.salt !== user.salt) throw E.invalidCredential()
+    if (current.locked_until && Date.parse(current.locked_until) > Date.now()) throw E.accountLocked(current.locked_until)
     dal.clearLoginFailure(user.user_id)
     const pair = issueTokenPair(user.user_id, deviceId ?? null)
 
@@ -121,7 +130,12 @@ export default async function authRoutes(app: FastifyInstance) {
 
       const { nickname, oldPassword, newPassword } = req.body ?? {}
 
+      if (nickname !== undefined && (typeof nickname !== 'string' || nickname.trim().length > 32)) {
+        throw E.validation(['nickname'])
+      }
+
       // 改密码必须同时给原密码与新密码（契约 §3.5）
+      let passwordUpdate: { hash: string; salt: string } | null = null
       const wantsPassword = oldPassword !== undefined || newPassword !== undefined
       if (wantsPassword) {
         if (!oldPassword || !newPassword) {
@@ -134,22 +148,24 @@ export default async function authRoutes(app: FastifyInstance) {
           throw new ApiError(400, 'VALIDATION_FAILED', pwdErr, { fields: ['newPassword'] })
         }
         // 契约 §2：原密码不对时用 401 AUTH_OLD_PASSWORD_WRONG
-        if (!verifyPassword(oldPassword, user.salt, user.password_hash)) {
+        if (!await verifyPasswordAsync(oldPassword, user.salt, user.password_hash)) {
           throw new ApiError(401, 'AUTH_OLD_PASSWORD_WRONG', '原密码不正确。')
         }
         const salt = makeSalt()
-        dal.updateUserPassword(user.user_id, hashPassword(newPassword, salt), salt)
+        passwordUpdate = { hash: await hashPasswordAsync(newPassword, salt), salt }
       }
 
-      if (nickname !== undefined) {
-        const n = String(nickname).trim()
-        if (n.length > 32) {
-          throw new ApiError(400, 'VALIDATION_FAILED', '昵称不得超过 32 个字。', {
-            fields: ['nickname'],
-          })
+      getDb().transaction(() => {
+        if (passwordUpdate) {
+          const current = dal.getUserById(userId)
+          if (!current || current.password_hash !== user.password_hash || current.salt !== user.salt) {
+            throw new ApiError(409, 'ACCOUNT_CHANGED', '账号密码已更新，请重新登录后再试。')
+          }
+          dal.updateUserPassword(user.user_id, passwordUpdate.hash, passwordUpdate.salt)
+          getDb().prepare('DELETE FROM T_Token WHERE user_id = ?').run(userId)
         }
-        dal.updateUserNickname(user.user_id, n || null)
-      }
+        if (nickname !== undefined) dal.updateUserNickname(user.user_id, nickname.trim() || null)
+      })()
 
       const fresh = dal.getUserById(user.user_id)!
       return {

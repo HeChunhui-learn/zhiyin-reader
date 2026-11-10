@@ -10,10 +10,10 @@
  */
 import { createHash } from 'node:crypto'
 import { existsSync, mkdirSync, writeFileSync } from 'node:fs'
-import { join } from 'node:path'
+import { dirname, join } from 'node:path'
 import { makeSalt, hashPassword } from '../src/auth/password'
 import { dal, newId, now } from '../src/dao'
-import { closeDb, getDb, initDb, isEmpty, SERVER_ROOT } from '../src/db'
+import { closeDb, getDb, initDb, isEmpty, DB_PATH } from '../src/db'
 
 /**
  * 演示账号的默认头像：128×128，品牌蓝的圆底上一重山一道水，与 features/brand/AppLogo 同源。
@@ -230,7 +230,7 @@ function main(): void {
  * 才 433 字节，不值得为它建个 assets 目录。
  */
 function seedDemoAvatar(userId: string): void {
-  const dir = join(SERVER_ROOT, 'data', 'avatars')
+  const dir = join(dirname(DB_PATH), 'avatars')
   if (!existsSync(dir)) mkdirSync(dir, { recursive: true })
   writeFileSync(join(dir, `${userId}.png`), Buffer.from(DEMO_AVATAR_PNG_B64, 'base64'))
   dal.setUserAvatar(userId, '/api/users/me/avatar', now())

@@ -218,6 +218,8 @@ export function useProgress(docId: string, enabled: boolean): ProgressApi {
         },
         body,
         keepalive: true,
+      }).then((response) => {
+        if (!response.ok) throw new Error('上报失败，稍后重试')
       }).catch(() => {
         void enqueuePending(docId, 'progress', JSON.parse(body), authStore.userId)
       })

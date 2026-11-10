@@ -1,7 +1,6 @@
 import type { ImportPayload } from '../../api/client'
 import { speaksInReadAlong, splitParagraph } from '../readalong/splitSentences'
 import { decodeFileText, encodingNote, type DecodedText } from './decode'
-import { parseEpub } from './epub'
 import { parseMarkdown } from './markdown'
 import { parseTxt } from './txt'
 import { normalizeText, stripExt, type ParseResult } from './types'
@@ -77,6 +76,7 @@ export async function parseFile(file: File): Promise<ParseOutcome> {
   let decoded: DecodedText | null = null
 
   if (format === 'EPUB') {
+    const { parseEpub } = await import('./epub')
     const epub = await parseEpub(file)
     result = epub
     imageBlobs = epub.imageBlobs

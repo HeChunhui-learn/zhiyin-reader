@@ -55,6 +55,7 @@ export function useReadingTime(docId: string, enabled: boolean): void {
     if (!enabled || !docId) return
 
     const deviceId = getDeviceId()
+    const userId = authStore.userId
 
     /** 把正在跑的这一段折进累计值；没在跑就是空操作 */
     const commit = () => {
@@ -93,11 +94,13 @@ export function useReadingTime(docId: string, enabled: boolean): void {
             },
             body: JSON.stringify(body),
             keepalive: true,
+          }).then((response) => {
+            if (!response.ok) throw new Error('上报失败，稍后重试')
           }).catch(() => {
-            void enqueuePending(docId, 'readingTime', body, authStore.userId)
+            void enqueuePending(docId, 'readingTime', body, userId)
           })
         } catch {
-          void enqueuePending(docId, 'readingTime', body, authStore.userId)
+          void enqueuePending(docId, 'readingTime', body, userId)
         }
         return
       }
@@ -106,9 +109,8 @@ export function useReadingTime(docId: string, enabled: boolean): void {
       api
         .postReadingTime(docId, body)
         .catch(() => {
-          // 失败就入队等下次补报，并且把量加回去，免得这一段凭空消失
-          unsentMsRef.current += ms
-          void enqueuePending(docId, 'readingTime', body, authStore.userId)
+          // 失败只入队一次，沿用 clientId 补报，不能再折回下一批重复累计
+          void enqueuePending(docId, 'readingTime', body, userId)
         })
         .finally(() => {
           inflightRef.current = false
@@ -155,7 +157,7 @@ export function useReadingTime(docId: string, enabled: boolean): void {
      * client_id 是同一个，服务端的唯一索引会把重复的挡掉，补报是安全的。
      */
     const replayPending = async () => {
-      const queued = (await listPending(authStore.userId, docId)).filter((p) => p.kind === 'readingTime')
+      const queued = (await listPending(userId, docId)).filter((p) => p.kind === 'readingTime')
       if (queued.length === 0) return
       const done: string[] = []
       for (const q of queued) {

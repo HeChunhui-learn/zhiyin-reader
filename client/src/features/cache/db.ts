@@ -9,8 +9,9 @@
  */
 
 export const DB_NAME = 'zhiyin-cache'
-export const DB_VERSION = 4
+export const DB_VERSION = 5
 
+export const STORE_DOCUMENTS = 'documents'
 export const STORE_IMAGES = 'images'
 export const STORE_AUDIO = 'audio'
 /** 离线待同步队列：网络失败时把变更记在这里，下次同步补报（契约 §6.3、§8） */
@@ -22,6 +23,7 @@ export const STORE_PENDING = 'pending'
 export const STORE_READER_BG = 'readerbg'
 
 export type StoreName =
+  | typeof STORE_DOCUMENTS
   | typeof STORE_IMAGES
   | typeof STORE_AUDIO
   | typeof STORE_PENDING
@@ -47,6 +49,9 @@ export function openCacheDb(): Promise<IDBDatabase | null> {
 
     req.onupgradeneeded = () => {
       const db = req.result
+      if (!db.objectStoreNames.contains(STORE_DOCUMENTS)) {
+        db.createObjectStore(STORE_DOCUMENTS, { keyPath: 'key' })
+      }
       // 老版本升上来时只建缺的 store
       if (!db.objectStoreNames.contains(STORE_IMAGES)) {
         const s = db.createObjectStore(STORE_IMAGES, { keyPath: 'imageId' })

@@ -1,10 +1,14 @@
 import { createHash } from 'node:crypto'
-import { existsSync, mkdirSync, readFileSync, writeFileSync, unlinkSync } from 'node:fs'
-import { extname, join } from 'node:path'
+import { existsSync, mkdirSync, createReadStream, createWriteStream } from 'node:fs'
+import { readFile, unlink, readdir, rename, rm } from 'node:fs/promises'
+import { Readable, Transform } from 'node:stream'
+import { pipeline } from 'node:stream/promises'
+import { randomUUID } from 'node:crypto'
+import { dirname, extname, join } from 'node:path'
 import type { FastifyInstance, FastifyRequest } from 'fastify'
 import { requireUserId } from '../auth/require'
 import { dal, now } from '../dao'
-import { SERVER_ROOT } from '../db'
+import { DB_PATH } from '../db'
 import { ApiError, E } from '../errors'
 
 /**
@@ -13,10 +17,10 @@ import { ApiError, E } from '../errors'
  * 前端始终通过服务端取，不直接接触存储（AGENTS.md 不做的事：不引入对象存储）。
  */
 
-const IMAGE_DIR = join(SERVER_ROOT, 'data', 'images')
-const FILE_DIR = join(SERVER_ROOT, 'data', 'files')
+const IMAGE_DIR = join(dirname(DB_PATH), 'images')
+const FILE_DIR = join(dirname(DB_PATH), 'files')
 /** 头像（R7-5）。按 userId 命名，一人一份 */
-const AVATAR_DIR = join(SERVER_ROOT, 'data', 'avatars')
+const AVATAR_DIR = join(dirname(DB_PATH), 'avatars')
 
 /** 契约 §3.6：头像上限比正文插图小一档 —— 它是个几十像素的圆，用不着 10MB */
 const MAX_AVATAR_BYTES = 2 * 1024 * 1024
@@ -82,50 +86,92 @@ function requireOwnDocument(req: FastifyRequest, docId: string) {
   return doc
 }
 
+/** 使用同目录临时文件原子替换；失败时清理半成品。 */
+async function storeBody(body: unknown, target: string, limit: number): Promise<number> {
+  if (!(body instanceof Readable)) throw E.validation(['body'])
+  let bytes = 0
+  const temporary = `${target}.${randomUUID()}.tmp`
+  try {
+    await pipeline(body, new Transform({ transform(chunk, _encoding, callback) {
+      bytes += chunk.length
+      callback(bytes > limit ? E.payloadTooLarge() : null, chunk)
+    } }), createWriteStream(temporary))
+    if (!bytes) throw E.validation(['body'])
+    await rename(temporary, target)
+    return bytes
+  } finally {
+    await rm(temporary, { force: true })
+  }
+}
+
+const documentWrites = new Map<string, Promise<void>>()
+
+/** 同一文档的上传与删除串行，避免目录扫描后又写入孤儿文件。 */
+export async function withDocumentResourceLock<T>(docId: string, action: () => Promise<T>): Promise<T> {
+  const previous = documentWrites.get(docId) ?? Promise.resolve()
+  let release!: () => void
+  const current = new Promise<void>(resolve => { release = resolve })
+  documentWrites.set(docId, current)
+  await previous
+  try { return await action() }
+  finally {
+    release()
+    if (documentWrites.get(docId) === current) documentWrites.delete(docId)
+  }
+}
+
+export async function cleanupDocumentResources(docId: string): Promise<void> {
+  // docId 由服务端生成，仅删除该文档的资源，不进行递归目录操作。
+  for (const dir of [IMAGE_DIR, FILE_DIR]) {
+    if (!existsSync(dir)) continue
+    for (const name of await readdir(dir)) {
+      if (name.startsWith(`${docId}_`) || name.startsWith(`${docId}.`)) await unlink(join(dir, name))
+    }
+  }
+}
+
 export default async function resourceRoutes(app: FastifyInstance) {
   /* ------------------------------- 契约 §4.3 上传单张图片（懒上传） */
   app.put<{ Params: { docId: string; imageId: string } }>(
     '/api/documents/:docId/images/:imageId',
     async (req, reply) => {
       const { docId, imageId } = req.params
-      requireOwnDocument(req, docId)
+      return withDocumentResourceLock(docId, async () => {
+        requireOwnDocument(req, docId)
 
-      const row = dal.getImageById(docId, imageId)
-      if (!row) throw E.notFound()
+        const row = dal.getImageById(docId, imageId)
+        if (!row) throw E.notFound()
 
-      const body = req.body
-      if (!Buffer.isBuffer(body) || body.length === 0) {
-        throw E.validation(['body'])
-      }
-      if (body.length > MAX_IMAGE_BYTES) throw E.payloadTooLarge()
 
+        if (!(req.body instanceof Readable)) throw E.validation(['body'])
       const mime = String(req.headers['content-type'] ?? '').split(';')[0].trim()
-      const ext = MIME_EXT[mime]
-      if (!ext) {
-        throw new ApiError(
-          415,
-          'UNSUPPORTED_MEDIA_TYPE',
-          `不支持的图片类型：${mime || '未知'}`,
-          { mime },
-        )
-      }
+        const ext = MIME_EXT[mime]
+        if (!ext) {
+          throw new ApiError(
+            415,
+            'UNSUPPORTED_MEDIA_TYPE',
+            `不支持的图片类型：${mime || '未知'}`,
+            { mime },
+          )
+        }
 
-      ensureDir(IMAGE_DIR)
-      const key = imageKey(docId, imageId)
-      // 重新上传时扩展名可能变了，先把旧的删掉
-      const old = findImageFile(key)
-      if (old) unlinkSync(old.path)
+        ensureDir(IMAGE_DIR)
+        const key = imageKey(docId, imageId)
+        // 写入成功后再清理旧扩展名，失败时保留原图
+        const old = findImageFile(key)
+        const target = join(IMAGE_DIR, `${key}${ext}`)
+        const bytes = await storeBody(req.body, target, MAX_IMAGE_BYTES)
+        if (old && old.path !== target) await unlink(old.path)
 
-      writeFileSync(join(IMAGE_DIR, `${key}${ext}`), body)
+        const imageUrl = `/api/documents/${docId}/images/${imageId}`
+        dal.setImageRemoteUrl(docId, imageId, imageUrl)
 
-      const imageUrl = `/api/documents/${docId}/images/${imageId}`
-      dal.setImageRemoteUrl(docId, imageId, imageUrl)
-
-      return {
-        imageId,
-        imageUrl,
-        bytes: body.length,
-      }
+        return {
+          imageId,
+          imageUrl,
+          bytes,
+        }
+      })
     },
   )
 
@@ -145,7 +191,7 @@ export default async function resourceRoutes(app: FastifyInstance) {
         throw E.notFound()
       }
 
-      const bytes = readFileSync(found.path)
+      const bytes = await readFile(found.path)
       const etag = `"${createHash('sha1').update(bytes).digest('hex').slice(0, 20)}"`
 
       if (req.headers['if-none-match'] === etag) {
@@ -164,20 +210,19 @@ export default async function resourceRoutes(app: FastifyInstance) {
     '/api/documents/:docId/file',
     async (req, reply) => {
       const { docId } = req.params
-      const doc = requireOwnDocument(req, docId)
+      return withDocumentResourceLock(docId, async () => {
+        const doc = requireOwnDocument(req, docId)
 
-      const body = req.body
-      if (!Buffer.isBuffer(body) || body.length === 0) throw E.validation(['body'])
-      if (body.length > MAX_FILE_BYTES) throw E.payloadTooLarge()
 
-      ensureDir(FILE_DIR)
-      const ext = extname(doc.file_name) || '.bin'
-      const target = join(FILE_DIR, `${docId}${ext}`)
-      writeFileSync(target, body)
+        ensureDir(FILE_DIR)
+        const ext = extname(doc.file_name) || '.bin'
+        const target = join(FILE_DIR, `${docId}${ext}`)
+        const bytes = await storeBody(req.body, target, MAX_FILE_BYTES)
 
-      const fileUrl = `/api/documents/${docId}/file`
-      dal.setDocumentResourceUrl(docId, fileUrl)
-      return { docId, fileUrl, fileSize: body.length }
+        const fileUrl = `/api/documents/${docId}/file`
+        dal.setDocumentResourceUrl(docId, fileUrl)
+        return { docId, fileUrl, fileSize: bytes }
+      })
     },
   )
 
@@ -205,7 +250,7 @@ export default async function resourceRoutes(app: FastifyInstance) {
           'Content-Disposition',
           `attachment; filename*=UTF-8''${encodeURIComponent(doc.file_name)}`,
         )
-      return reply.send(readFileSync(found))
+      return reply.send(createReadStream(found))
     },
   )
 
@@ -223,10 +268,8 @@ export default async function resourceRoutes(app: FastifyInstance) {
   app.put('/api/users/me/avatar', async (req, reply) => {
     const userId = requireUserId(req)
 
-    const body = req.body
-    if (!Buffer.isBuffer(body) || body.length === 0) throw E.validation(['body'])
-    if (body.length > MAX_AVATAR_BYTES) throw E.payloadTooLarge()
 
+    if (!(req.body instanceof Readable)) throw E.validation(['body'])
     const mime = String(req.headers['content-type'] ?? '').split(';')[0].trim()
     const ext = MIME_EXT[mime]
     if (!ext) {
@@ -237,12 +280,13 @@ export default async function resourceRoutes(app: FastifyInstance) {
 
     ensureDir(AVATAR_DIR)
     const old = findAvatar(userId)
-    if (old) unlinkSync(old.path)
-    writeFileSync(join(AVATAR_DIR, `${userId}${ext}`), body)
+    const target = join(AVATAR_DIR, `${userId}${ext}`)
+    const bytes = await storeBody(req.body, target, MAX_AVATAR_BYTES)
+    if (old && old.path !== target) await unlink(old.path)
 
     const avatarUrl = '/api/users/me/avatar'
     dal.setUserAvatar(userId, avatarUrl, now())
-    return reply.code(200).send({ avatarUrl, bytes: body.length })
+    return reply.code(200).send({ avatarUrl, bytes })
   })
 
   app.get('/api/users/me/avatar', async (req, reply) => {
@@ -251,7 +295,7 @@ export default async function resourceRoutes(app: FastifyInstance) {
     if (!found) throw E.notFound()
 
     // 头像换得勤，用短一点的缓存并带上 ETag 让浏览器自己判重
-    const bytes = readFileSync(found.path)
+    const bytes = await readFile(found.path)
     const etag = `"${createHash('sha1').update(bytes).digest('hex').slice(0, 20)}"`
     if (req.headers['if-none-match'] === etag) return reply.code(304).send()
 
@@ -265,7 +309,7 @@ export default async function resourceRoutes(app: FastifyInstance) {
   app.delete('/api/users/me/avatar', async (req) => {
     const userId = requireUserId(req)
     const found = findAvatar(userId)
-    if (found) unlinkSync(found.path)
+    if (found) await unlink(found.path)
     dal.setUserAvatar(userId, null, now())
     return { avatarUrl: null as string | null }
   })

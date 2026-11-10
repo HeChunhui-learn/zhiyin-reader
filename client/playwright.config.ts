@@ -12,8 +12,8 @@ import { defineConfig, devices } from '@playwright/test'
  *     不会污染演示库 server/data/zhiyin.db
  *   · 前端 5173 —— Vite dev server，通过 /api 代理到 3000
  */
-const SERVER_PORT = 3000
-const WEB_PORT = 5173
+const SERVER_PORT = Number(process.env.E2E_API_PORT ?? 3000)
+const WEB_PORT = Number(process.env.E2E_WEB_PORT ?? 5173)
 
 export default defineConfig({
   testDir: './e2e',
@@ -63,6 +63,7 @@ export default defineConfig({
   webServer: [
     {
       command: 'npm run e2e:server',
+      env: { PORT: String(SERVER_PORT), HOST: '127.0.0.1' },
       cwd: '../server',
       url: `http://127.0.0.1:${SERVER_PORT}/api/health`,
       reuseExistingServer: !process.env.CI,
@@ -80,6 +81,7 @@ export default defineConfig({
        * 这里只是测试启动方式不同，不该反过来改产品配置。
        */
       command: `npx vite --host 127.0.0.1 --port ${WEB_PORT} --strictPort`,
+      env: { ZHIYIN_API_TARGET: `http://127.0.0.1:${SERVER_PORT}` },
       url: `http://127.0.0.1:${WEB_PORT}`,
       reuseExistingServer: !process.env.CI,
       timeout: 120_000,

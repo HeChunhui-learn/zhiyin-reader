@@ -1,4 +1,4 @@
-import { randomBytes, scryptSync, timingSafeEqual } from 'node:crypto'
+import { randomBytes, scrypt, scryptSync, timingSafeEqual } from 'node:crypto'
 
 /**
  * 口令加盐哈希。
@@ -54,4 +54,18 @@ export function validateAccount(account: unknown): string | null {
   const isEmail = /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(s)
   if (!isPhone && !isEmail) return '账号需为手机号或邮箱'
   return null
+}
+
+/** 在线认证交给线程池，避免口令计算阻塞其他读者的请求。 */
+export async function hashPasswordAsync(password: string, salt: string): Promise<string> {
+  return new Promise((resolve, reject) => {
+    scrypt(password, salt, KEY_LEN, (error, key) => error ? reject(error) : resolve(key.toString('hex')))
+  })
+}
+
+export async function verifyPasswordAsync(password: string, salt: string, expectedHash: string): Promise<boolean> {
+  if (typeof password !== 'string' || password.length > 128) return false
+  const given = Buffer.from(await hashPasswordAsync(password, salt), 'hex')
+  const expected = Buffer.from(expectedHash, 'hex')
+  return given.length === expected.length && timingSafeEqual(given, expected)
 }

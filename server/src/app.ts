@@ -19,7 +19,7 @@ import appVersionRoutes, { getAppVersionEnv } from './routes/appVersion'
  *
  * R7-4 从 20MB 提到 100MB，本次再提到 500MB —— 演示要能吃下带整本插图的
  * 大部头 EPUB。注意这个值同时是**内存**上限：Fastify 会在进 handler 之前
- * 把整个 body 收进 Buffer，一个 500MB 的 PUT 就是一份 500MB 的常驻内存。
+ * 对 JSON 请求把整个 body 收进内存，二进制 PUT 使用流式写入，不占用等量的常驻内存。
  *
  * 这里只是"别让解析器抢在业务校验前面把请求打回"，真正兜底的是两处业务上限：
  *  · 正文 JSON 看 documents.ts 的 MAX_PARAGRAPHS —— 段落数才是耗内存的那一头
@@ -49,7 +49,7 @@ export async function buildApp(opts: BuildAppOptions = {}): Promise<FastifyInsta
 
   if (initDatabase) initDb()
 
-  const app = Fastify({ logger: false, bodyLimit: BODY_LIMIT })
+  const app = Fastify({ logger: false, bodyLimit: BODY_LIMIT, ajv: { customOptions: { coerceTypes: false } } })
 
   await app.register(cors, { origin: true, exposedHeaders: ['X-Request-Id', 'ETag'] })
 
@@ -117,6 +117,10 @@ export async function buildApp(opts: BuildAppOptions = {}): Promise<FastifyInsta
       })
     }
 
+    if (err.validation) {
+      return reply.code(400).send({ code: 'VALIDATION_FAILED', message: '请求参数不合法，请检查后重试。', details: {}, requestId })
+    }
+
     // Fastify 自己的校验/解析错误
     const fastifyCode = (err as { code?: string }).code
     if (fastifyCode === 'FST_ERR_CTP_BODY_TOO_LARGE') {
@@ -148,14 +152,14 @@ export async function buildApp(opts: BuildAppOptions = {}): Promise<FastifyInsta
     })
   })
 
-  // 二进制上传：图片与原始文件。这两个 parser 让 req.body 直接是 Buffer，
+  // 二进制上传：图片与原始文件。这些 parser 保留输入流，由资源路由限量写入磁盘，
   // 不会被当成 JSON 解析（契约 §4.2 / §4.3 / §5）
   const binaryTypes = [
     'application/octet-stream',
     'image/png', 'image/jpeg', 'image/gif',
     'image/webp', 'image/bmp', 'image/svg+xml',
   ]
-  app.addContentTypeParser(binaryTypes, { parseAs: 'buffer' }, (_req, body, done) => {
+  app.addContentTypeParser(binaryTypes, (_req, body, done) => {
     done(null, body)
   })
 

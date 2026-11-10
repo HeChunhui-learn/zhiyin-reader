@@ -636,8 +636,10 @@ export const api = {
   silentLogin: () => refreshOnce(),
 
   /* 文档 */
-  listDocuments: (opts: { keyword?: string; category?: string } = {}) => {
+  listDocuments: (opts: { keyword?: string; category?: string; page?: number; pageSize?: number } = {}) => {
     const q = new URLSearchParams()
+    if (opts.page) q.set('page', String(opts.page))
+    if (opts.pageSize) q.set('pageSize', String(opts.pageSize))
     if (opts.keyword) q.set('keyword', opts.keyword)
     if (opts.category && opts.category !== 'all') q.set('category', opts.category)
     const qs = q.toString()
