@@ -1,15 +1,47 @@
 apply plugin: 'com.android.application'
 
 /*
- * 发布签名的密钥信息放在 android/keystore.properties（不进版本库）。
- * 文件不存在时不配 signingConfig —— `assembleRelease` 会产出未签名包，
- * 不影响 `assembleDebug` 开发调试。要打可安装的正式包，先按 README 生成密钥。
+ * 发布签名的密钥信息放两处，优先环境变量，其次 android/keystore.properties（不进版本库）：
+ *
+ *   · 本机：keystore.properties 指向 android/keystore/zhiyin-release.jks
+ *   · CI  ：.github/workflows/android.yml 从 GitHub Secrets 还原出 .jks 并导出
+ *           ZHIYIN_KEYSTORE_FILE / ZHIYIN_KEYSTORE_PASSWORD / ZHIYIN_KEY_ALIAS / ZHIYIN_KEY_PASSWORD
+ *
+ * 两处都没有时不配 signingConfig —— `assembleRelease` 产出未签名包（装不上），
+ * 但 `assembleDebug` 照常可用。
+ *
+ * ⚠️ 签名密钥换了，已装的 App 就不能覆盖升级，只能卸载重装（本地数据全丢）。
  */
 def keystorePropertiesFile = rootProject.file("keystore.properties")
 def keystoreProperties = new Properties()
 if (keystorePropertiesFile.exists()) {
     keystoreProperties.load(new FileInputStream(keystorePropertiesFile))
 }
+
+/** 环境变量优先，空串当作没有 */
+def envOrProp = { String envName, String propName ->
+    def fromEnv = System.getenv(envName)
+    if (fromEnv != null && !fromEnv.trim().isEmpty()) return fromEnv.trim()
+    def fromProp = keystoreProperties[propName]
+    if (fromProp != null && !fromProp.trim().isEmpty()) return fromProp.trim()
+    return null
+}
+
+def storeFilePath = envOrProp('ZHIYIN_KEYSTORE_FILE', 'storeFile')
+def storePasswordValue = envOrProp('ZHIYIN_KEYSTORE_PASSWORD', 'storePassword')
+def keyAliasValue = envOrProp('ZHIYIN_KEY_ALIAS', 'keyAlias')
+def keyPasswordValue = envOrProp('ZHIYIN_KEY_PASSWORD', 'keyPassword')
+def hasSigning = storeFilePath != null && storePasswordValue != null &&
+        keyAliasValue != null && keyPasswordValue != null
+
+/*
+ * 版本号：CI 发版时由 tag 与环境变量注入（ZHIYIN_VERSION_CODE / ZHIYIN_VERSION_NAME），
+ * 本机手工构建时回落到这里的默认值。**两处必须与 VITE_APP_VERSION_CODE / VITE_APP_VERSION_NAME
+ * 保持一致** —— 客户端靠它发 X-App-Version-Code 头，发不出来服务端就当旧版拦成 426。
+ * versionCode 必须单调递增，否则 Android 拒绝覆盖安装。
+ */
+def versionCodeEnv = System.getenv('ZHIYIN_VERSION_CODE')
+def versionNameEnv = System.getenv('ZHIYIN_VERSION_NAME')
 
 android {
     namespace = "com.zhiyin.reader"
@@ -18,22 +50,23 @@ android {
         applicationId "com.zhiyin.reader"
         minSdkVersion rootProject.ext.minSdkVersion
         targetSdkVersion rootProject.ext.targetSdkVersion
-        versionCode 9
-        versionName "1.8.0"
+        versionCode versionCodeEnv ? versionCodeEnv.trim().toInteger() : 10
+        versionName versionNameEnv?.trim() ?: "1.9.0"
         testInstrumentationRunner "androidx.test.runner.AndroidJUnitRunner"
         aaptOptions {
              // Files and dirs to omit from the packaged assets dir, modified to accommodate modern web apps.
-             // Default: https://android.googlesource.com/platform/frameworks/base/+/282e181b58cf72b6ca770dc7ca5f91f135444502/tools/aapt/AaptAssets.cpp#61
+            // Default: https://android.googlesource.com/platform/frameworks/base/+/282e181b58cf72b6ca770dc7ca5f91f135444502/tools/aapt/AaptAssets.cpp#61
             ignoreAssetsPattern = '!.svn:!.git:!.ds_store:!*.scc:.*:!CVS:!thumbs.db:!picasa.ini:!*~'
         }
     }
     signingConfigs {
         release {
-            if (keystorePropertiesFile.exists()) {
-                storeFile file(keystoreProperties['storeFile'])
-                storePassword keystoreProperties['storePassword']
-                keyAlias keystoreProperties['keyAlias']
-                keyPassword keystoreProperties['keyPassword']
+            if (hasSigning) {
+                // file() 既能吃相对路径（相对 app/）也能吃绝对路径
+                storeFile file(storeFilePath)
+                storePassword storePasswordValue
+                keyAlias keyAliasValue
+                keyPassword keyPasswordValue
             }
         }
     }
@@ -42,7 +75,7 @@ android {
         release {
             minifyEnabled false
             proguardFiles getDefaultProguardFile('proguard-android.txt'), 'proguard-rules.pro'
-            if (keystorePropertiesFile.exists()) {
+            if (hasSigning) {
                 signingConfig signingConfigs.release
             }
         }

@@ -1,7 +1,8 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { ApiError, DEFAULT_API_BASE, api, getApiBase, setApiBase } from '../api/client'
+import { ApiError, api } from '../api/client'
 import { invalidateAvatar, default as UserAvatar } from '../features/profile/UserAvatar'
+import ServerSettings from '../features/app/ServerSettings'
 import ThemeToggle from '../features/settings/ThemeToggle'
 import { useSession } from '../state/session'
 import { useGoUp } from '../features/app/useGoUp'
@@ -25,25 +26,8 @@ export default function ProfileView() {
   const [saving, setSaving] = useState(false)
   const [notice, setNotice] = useState<{ kind: 'done' | 'failed'; text: string } | null>(null)
   const [avatarBusy, setAvatarBusy] = useState(false)
-  /* 服务器地址是「装成客户端才用得上」的高级项，默认折叠，不占读者视线 */
-  const [serverOpen, setServerOpen] = useState(false)
-  const [serverDraft, setServerDraft] = useState(getApiBase())
-  const [serverMsg, setServerMsg] = useState('')
 
   const fileRef = useRef<HTMLInputElement>(null)
-
-  /** 原生壳里换服务器地址用。浏览器端默认同源，一般用不到，但改错了也能改回来 */
-  function saveServer() {
-    const next = setApiBase(serverDraft)
-    setServerDraft(next)
-    setServerMsg(`已保存：${next}`)
-  }
-
-  function resetServer() {
-    setApiBase(null)
-    setServerDraft(DEFAULT_API_BASE)
-    setServerMsg(`已恢复默认：${DEFAULT_API_BASE}`)
-  }
 
   useEffect(() => {
     if (ready && !user) navigate('/login', { replace: true })
@@ -134,9 +118,6 @@ export default function ProfileView() {
     )
   }
 
-  /* 「/api」这种同源默认值对读者没有信息量，直接写成看得懂的默认态 */
-  const serverShown = getApiBase() === DEFAULT_API_BASE ? '默认（同源）' : getApiBase()
-
   return (
     <div className="shelf-page">
       <header className="shelf-topbar">
@@ -219,38 +200,7 @@ export default function ProfileView() {
           </dl>
 
           <div className="profile-advanced">
-            <div className="login-server">
-              <button
-                type="button"
-                className="login-server-toggle"
-                onClick={() => { setServerOpen((v) => !v); setServerMsg('') }}
-              >
-                服务器地址：<span>{serverShown}</span>
-                <i>{serverOpen ? '收起' : '修改'}</i>
-              </button>
-
-              {serverOpen && (
-                <div className="login-server-box">
-                  <label className="field">
-                    <span className="field-label">API 基址（留空恢复默认）</span>
-                    <input
-                      className="input"
-                      value={serverDraft}
-                      placeholder={DEFAULT_API_BASE}
-                      onChange={(e) => { setServerDraft(e.target.value); setServerMsg('') }}
-                      autoCapitalize="off"
-                      autoCorrect="off"
-                      spellCheck={false}
-                    />
-                  </label>
-                  <div className="login-server-actions">
-                    <button type="button" className="btn" onClick={saveServer}>保存</button>
-                    <button type="button" className="btn btn-ghost" onClick={resetServer}>恢复默认</button>
-                  </div>
-                  {serverMsg && <p className="login-server-msg">{serverMsg}</p>}
-                </div>
-              )}
-            </div>
+            <ServerSettings />
             <p className="muted profile-hint">
               只有装成本机客户端、要连自建服务器时才需要改；浏览器版保持默认即可。
             </p>

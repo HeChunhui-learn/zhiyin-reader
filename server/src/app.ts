@@ -12,7 +12,7 @@ import bookmarkRoutes from './routes/bookmarks'
 import readingTimeRoutes from './routes/readingTime'
 import syncRoutes from './routes/sync'
 import healthRoutes from './routes/health'
-import appVersionRoutes, { getAppVersionEnv } from './routes/appVersion'
+import appVersionRoutes, { peekAppVersion } from './routes/appVersion'
 
 /**
  * 单次请求体的上限。默认 1MB 对导入文档来说完全不够。
@@ -82,7 +82,10 @@ export async function buildApp(opts: BuildAppOptions = {}): Promise<FastifyInsta
     const path = (req.url ?? '').split('?')[0]
     if (path === '/api/app/version' || path === '/api/health') return
 
-    const { versionCode, versionName, apkUrl, minVersionCode } = getAppVersionEnv()
+    // 用 peekAppVersion 而不是 resolveAppVersion：闸门挂在每个请求上，
+    // 这里绝对不能联网查 GitHub，否则 GitHub 不通时所有接口都要多等一次超时。
+    // 它只读 /api/app/version 留下的缓存，没有缓存就用环境变量兜底。
+    const { versionCode, versionName, apkUrl, minVersionCode } = peekAppVersion()
     if (!Number.isFinite(minVersionCode) || minVersionCode <= 0) return
 
     const raw = req.headers['x-app-version-code']

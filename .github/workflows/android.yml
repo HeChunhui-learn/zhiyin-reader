@@ -1,0 +1,252 @@
+# 知音漫卷（zhiyin-reader）的 Android 安装包发布流程。
+#
+# 触发方式只有一个：推一个版本 tag（v1.9.0 这种）。日常提交不跑这个 job，
+# 因为一次 Android 构建要几分钟，没必要每次 push 都跑一遍。
+#
+#   git tag v1.9.0 && git push origin v1.9.0
+#
+# 跑完之后：Release 页面出现一个新版本，附件固定叫 zhiyin.apk。
+# 手机端不需要知道版本号 —— 服务端查 GitHub Releases 拿到地址再下发，
+# 客户端只管"点下载、装新的"，见 server/src/routes/appVersion.ts。
+#
+# ⚠️ 两个必须先在仓库 Settings → Secrets 里配好的值（缺一个就红）：
+#   ANDROID_KEYSTORE_BASE64    签名文件 zhiyin-release.jks 的 base64
+#   ANDROID_KEYSTORE_PASSWORD  签名文件的 storePassword
+#   ANDROID_KEY_ALIAS          keyAlias（本仓库是 zhiyin）
+#   ANDROID_KEY_PASSWORD       keyPassword
+#
+# 换签名密钥的后果很重：已装的 App 无法覆盖升级，只能卸载重装（本地数据全丢）。
+# 生成命令见 docs/06-手机端安装与连接指南.md。
+name: Android APK
+
+on:
+  push:
+    # 只认 v 开头的版本 tag，推分支不会触发
+    tags: ['v*']
+  # 允许在 Actions 页面手动重发某次构建（版本号填 1.9.0，需已存在 v1.9.0 这个 tag）
+  workflow_dispatch:
+    inputs:
+      version:
+        description: '要重新发布的版本号，例如 1.9.0（不带 v，tag 必须已存在）'
+        required: true
+        type: string
+
+# 发版要写 Release，必须给写权限；其余一律只读
+permissions:
+  contents: write
+
+# 同一个 tag 重复触发时不并发，避免两次上传同一个附件互相覆盖
+concurrency:
+  group: android-${{ github.ref }}
+  cancel-in-progress: false
+
+env:
+  NPM_CONFIG_FUND: 'false'
+  NPM_CONFIG_AUDIT: 'false'
+
+jobs:
+  release:
+    name: 构建并发布 APK
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          # 手动重发时签出那个 tag，而不是默认分支 —— 否则会把旧代码当新版本发出去
+          ref: ${{ inputs.version && format('refs/tags/v{0}', inputs.version) || github.ref }}
+          # 要读 tag 来判断版本号，浅克隆拿不到
+          fetch-depth: 0
+
+      # 版本号只从一个地方来：git tag。tag 是 v1.9.0，versionName 就是 1.9.0。
+      #
+      # versionCode 用 major*10000 + minor*100 + patch 折算（1.9.0 → 10900）：
+      #   · 必须单调递增，否则 Android 拒绝覆盖安装；
+      #   · 手写容易忘，从 tag 算出来就不会错。
+      # 历史上 1.8.0 是 versionCode 9，10900 远大于它，升级方向正确。
+      - name: 解析版本号
+        id: ver
+        run: |
+          set -euo pipefail
+          if [ -n "${{ inputs.version }}" ]; then
+            NAME="${{ inputs.version }}"
+          else
+            NAME="${GITHUB_REF_NAME#v}"
+          fi
+          if ! [[ "$NAME" =~ ^([0-9]+)\.([0-9]+)\.([0-9]+)$ ]]; then
+            echo "::error::版本号格式不对：$NAME（要 X.Y.Z）"
+            exit 1
+          fi
+          MAJ="${BASH_REMATCH[1]}"; MIN="${BASH_REMATCH[2]}"; PAT="${BASH_REMATCH[3]}"
+          CODE=$(( MAJ * 10000 + MIN * 100 + PAT ))
+          echo "name=$NAME" >> "$GITHUB_OUTPUT"
+          echo "code=$CODE" >> "$GITHUB_OUTPUT"
+          echo "tag=v$NAME" >> "$GITHUB_OUTPUT"
+          echo "版本 $NAME，versionCode $CODE"
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: client/package-lock.json
+
+      # 编译期要用 JDK 21：capacitor.build.gradle 里 sourceCompatibility /
+      # targetCompatibility 都是 VERSION_21，用 17 会直接编译失败。
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+
+      # runner 自带 Android SDK，但装的是默认那几个版本；本项目
+      # variables.gradle 里 compileSdk / targetSdk 都是 36，缺了会在构建时
+      # 报 "Failed to find target with hash string android-36"。
+      # 组件已经存在时这条命令是幂等的，不会额外下载。
+      - name: 补齐 Android SDK 组件
+        run: |
+          set -euo pipefail
+          SDK="${ANDROID_HOME:-${ANDROID_SDK_ROOT:-$HOME/android-sdk}}"
+          echo "Android SDK: $SDK"
+          yes | "$SDK/cmdline-tools/latest/bin/sdkmanager" --licenses > /dev/null || true
+          "$SDK/cmdline-tools/latest/bin/sdkmanager" \
+            "platform-tools" "platforms;android-36" "build-tools;36.0.0"
+
+      # gradle-wrapper.properties 里配的是腾讯云镜像（本机在国内拉得快），
+      # runner 上未必稳。这里不绕 wrapper，而是让 action 直接装官方发行版，
+      # 走 services.gradle.org，和 wrapper 里写什么无关。
+      # 版本要 ≥ AGP 8.13 要求的下限。
+      - uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: '8.14.3'
+
+      - name: 安装前端依赖
+        working-directory: client
+        run: npm ci
+
+      # ★ 关键一步：把版本号编进前端。
+      #
+      # client/src/api/appVersion.ts 读的是 import.meta.env.VITE_APP_VERSION_CODE，
+      # 不注入就是 0，而 appVersionHeader() 只在 > 0 时才发 X-App-Version-Code。
+      # 不带这个头，服务端（Origin 为 localhost 的原生壳）会一律判成旧版，
+      # 全站 426 —— 装上的 App 打开就废。
+      #
+      # VITE_API_BASE 是有意留空的：原演示服务器已停用，没有"人人可用"的默认地址。
+      # 仓库变量 ZHIYIN_API_BASE 存在时会编进去当默认值；不存在就留空，
+      # 客户端会把默认值算成 /api，并在原生壳里把「服务器地址」面板直接展开
+      # 让用户填（见 client/src/features/app/ServerSettings.tsx 的 needsConfig）。
+      - name: 构建前端（注入版本号）
+        working-directory: client
+        env:
+          VITE_APP_VERSION_CODE: ${{ steps.ver.outputs.code }}
+          VITE_APP_VERSION_NAME: ${{ steps.ver.outputs.name }}
+          VITE_API_BASE: ${{ vars.ZHIYIN_API_BASE }}
+        run: npm run build
+
+      # 把 dist 拷进 android/app/src/main/assets/public，并重新生成
+      # capacitor.settings.gradle 等文件（这些文件都在 .gitignore 里，必须现生成）
+      - name: 同步到 Android 工程
+        working-directory: client
+        run: npx cap sync android
+
+      # 签名文件不进版本库（见 client/android/.gitignore），从 Secrets 还原
+      - name: 还原签名文件
+        env:
+          KEYSTORE_BASE64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
+        run: |
+          set -euo pipefail
+          if [ -z "$KEYSTORE_BASE64" ]; then
+            echo "::error::缺少 Secret ANDROID_KEYSTORE_BASE64。未签名的 APK 装不上手机，因此中止。"
+            echo "生成方法见 docs/06-手机端安装与连接指南.md"
+            exit 1
+          fi
+          mkdir -p client/android/keystore
+          echo "$KEYSTORE_BASE64" | base64 -d > client/android/keystore/zhiyin-release.jks
+          # 解出来的东西必须是 JKS，不能是空的或半截的 base64
+          file client/android/keystore/zhiyin-release.jks
+
+      - name: 构建签名 APK
+        working-directory: client/android
+        env:
+          # build.gradle 里 envOrProp() 先读这四个环境变量，读不到才回落到
+          # keystore.properties（本机用）。CI 上没有那个文件，全靠这组变量。
+          #
+          # ⚠️ 路径必须写绝对路径：build.gradle 里的 file() 是相对 `app/` 解析的，
+          # 写成 keystore/xxx.jks 会找成 app/keystore/xxx.jks 然后报文件不存在。
+          ZHIYIN_KEYSTORE_FILE: ${{ github.workspace }}/client/android/keystore/zhiyin-release.jks
+          ZHIYIN_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+          ZHIYIN_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
+          ZHIYIN_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
+          ZHIYIN_VERSION_CODE: ${{ steps.ver.outputs.code }}
+          ZHIYIN_VERSION_NAME: ${{ steps.ver.outputs.name }}
+        run: |
+          set -euo pipefail
+          # 不用 ./gradlew：wrapper 里配的是腾讯云镜像，runner 上没必要冒这个险，
+          # 上面 setup-gradle 装的官方发行版更稳。
+          gradle :app:assembleRelease --no-daemon --stacktrace
+
+      - name: 收拢产物并校验
+        id: apk
+        run: |
+          set -euo pipefail
+          SRC=$(find client/android/app/build/outputs/apk/release -name '*.apk' | head -n1)
+          if [ -z "$SRC" ]; then
+            echo "::error::没找到 APK 产物"
+            exit 1
+          fi
+          # 附件名固定成 zhiyin.apk：服务端优先按这个名字找，
+          # releases/latest/download/zhiyin.apk 也因此能当永久地址用。
+          cp "$SRC" zhiyin.apk
+          ls -lh zhiyin.apk
+          # eslint 那种"构建成功但产物是空壳"的坑这里挡一下
+          SIZE=$(stat -c%s zhiyin.apk)
+          if [ "$SIZE" -lt 1000000 ]; then
+            echo "::error::APK 只有 $SIZE 字节，明显不对"
+            exit 1
+          fi
+          echo "sha256=$(sha256sum zhiyin.apk | cut -d' ' -f1)" >> "$GITHUB_OUTPUT"
+
+      - name: 上传构建产物（排障用）
+        if: always()
+        uses: actions/upload-artifact@v5
+        with:
+          name: zhiyin-apk-${{ steps.ver.outputs.name }}
+          path: zhiyin.apk
+          if-no-files-found: ignore
+          retention-days: 7
+
+      # Release 正文里的 <!-- zhiyin:versionCode=N --> 是**机读标记**，
+      # 服务端靠它拿到版本号（见 server/src/routes/appVersion.ts 的 VERSION_CODE_MARK）。
+      # 少了这行，服务端解析不出 Release，会静默回落到环境变量里的旧版本。
+      #
+      # 说明正文里不要用反引号或 $( )：这是未加引号的 heredoc，shell 会去做
+      # 命令替换，把哈希当成命令执行。
+      - name: 生成 Release 说明
+        run: |
+          cat > release-notes.md <<EOF
+          <!-- zhiyin:versionCode=${{ steps.ver.outputs.code }} -->
+
+          ## 知音漫卷 ${{ steps.ver.outputs.name }}
+
+          - 版本号：${{ steps.ver.outputs.name }}（versionCode ${{ steps.ver.outputs.code }}）
+          - 安装包：zhiyin.apk
+          - SHA-256：${{ steps.apk.outputs.sha256 }}
+
+          已安装旧版本的用户直接在 App 内点「立即下载更新」即可，无需卸载。
+          EOF
+          cat release-notes.md
+
+      - name: 发布 Release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAG: ${{ steps.ver.outputs.tag }}
+          NAME: ${{ steps.ver.outputs.name }}
+        run: |
+          set -euo pipefail
+          if gh release view "$TAG" >/dev/null 2>&1; then
+            # 重跑同一次发版：覆盖附件与说明，不新建 Release
+            gh release upload "$TAG" zhiyin.apk --clobber
+            gh release edit "$TAG" --notes-file release-notes.md --latest
+          else
+            gh release create "$TAG" zhiyin.apk \
+              --title "知音漫卷 $NAME" \
+              --notes-file release-notes.md \
+              --latest
+          fi
+          echo "已发布：${{ github.server_url }}/${{ github.repository }}/releases/tag/$TAG"

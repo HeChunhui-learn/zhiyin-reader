@@ -6,9 +6,9 @@
 系统在浏览器内完成解析，正文以图文混排方式滚动阅读，并支持逐句高亮跟读；
 阅读进度与书签按设备记录、跨端同步，冲突时两份都保留。
 
-软件工程课程设计 · 第一组 · 当前版本 **1.3.0**
+软件工程课程设计 · 第一组 · 当前版本 **1.9.0**
 
-[功能](#功能) · [快速开始](#快速开始) · [使用说明](#使用说明) · [技术栈](#技术栈) · [测试](#测试) · [文档](#文档)
+[功能](#功能) · [快速开始](#快速开始) · [使用说明](#使用说明) · [Android 安装](#android-安装) · [技术栈](#技术栈) · [测试](#测试) · [文档](#文档)
 
 ---
 
@@ -176,8 +176,53 @@ npm run dev
 
 ### 更新提示
 
-- Android 壳：发现强制更新时弹出不可关闭的更新窗口。
+- Android 壳：发现强制更新时弹出不可关闭的更新窗口，点「立即下载更新」交给系统浏览器下载新的 APK。
 - 手机 / 平板网页版：顶部显示「发现新版本 / 立即刷新」，不打断阅读。
+
+---
+
+## Android 安装
+
+安装包**不在本仓库的代码里**，而是挂在 GitHub Releases 上，由 CI 构建：
+
+```text
+下载页：https://github.com/HeChunhui-learn/zhiyin-reader/releases/latest
+固定地址：https://github.com/HeChunhui-learn/zhiyin-reader/releases/latest/download/zhiyin.apk
+```
+
+`releases/latest/download/zhiyin.apk` 这个地址永远指向最新一版，可以收藏或做成二维码。
+
+> ⚠️ **原演示服务器 `123.56.172.230` 已停用。**
+> APK 仍然能下载、安装，但装好后要**先有自己的服务端**才能登录：
+> 按上面「快速开始」在本机或任意一台机器起服务端，然后在 App 登录页的
+> 「服务器地址」里填它（例如 `http://192.168.1.5:3000/api`）。
+> 地址是运行时可改的，不必为了换服务器重新打包。
+> 安装包**不内置**任何默认地址 —— 没有"人人可用"的服务器可写。
+
+### 更新是怎么走的
+
+```text
+git tag v1.9.0 && git push origin v1.9.0
+        │
+        ▼
+.github/workflows/android.yml  ── 构建签名 APK ──▶ GitHub Release（附件 zhiyin.apk）
+        │                                              │
+        │  正文含机读标记 <!-- zhiyin:versionCode=10900 -->
+        ▼                                              ▼
+手机端 App 启动 ──▶ GET /api/app/version ──▶ 服务端查 Releases API（缓存 5 分钟）
+                       │
+                       └─▶ 有新版就弹窗，点下载跳系统浏览器
+```
+
+客户端不直连 GitHub：GitHub 未登录时按 IP 限流 60 次/小时（一屋子手机同一个出口 IP 必爆），
+国内移动网络也常连不上。服务端代查一次、缓存 5 分钟，手机只要能连上服务器就行。
+GitHub 查不到时回落到环境变量，具体变量见 [`docs/system-develop.md`](./docs/system-develop.md) §2.3。
+
+完整步骤（含签名密钥的生成与备份、Secrets 配置、重发某一版）见
+[`docs/06-手机端安装与连接指南.md`](./docs/06-手机端安装与连接指南.md) §5。
+
+> ⚠️ 签名密钥 `client/android/keystore/zhiyin-release.jks` **不进版本库**，必须单独备份。
+> 丢了就没法给已装的 App 发更新，用户只能卸载重装。
 
 ---
 
@@ -186,6 +231,7 @@ npm run dev
 | 问题 | 处理 |
 |---|---|
 | 页面显示「无法连接到服务端」 | 服务端没起来；检查 3000 端口或重新运行 `start.bat` |
+| 手机 App 显示「连不上服务器」 | 登录页最下面的「服务器地址」填自己服务端的 API 基址（原演示服务器已停用） |
 | 跟读没有声音 | 看是否提示「已降级为设备发声」；检查系统音量和标签页静音 |
 | 图片显示「图片不可用」 | 图片是懒上传的；回到导入设备打开该书并滚到该图位置即可补传 |
 | 账号被锁定 | 连续输错 5 次会锁 15 分钟，等待或换账号 |
@@ -252,13 +298,13 @@ zhiyin-reader/
 
 ## 测试
 
-三层测试，合计 **498 项**：
+三层测试，合计 **552 项**：
 
 | 层 | 位置 | 规模 | 命令 |
 |---|---|---|---|
-| 服务端接口与集成 | `server/test/` | 7 文件 / 248 项 | `cd server && npm test` |
-| 客户端单元 | `client/test/` | 12 文件 / 207 项 | `cd client && npm test` |
-| 浏览器端到端 | `client/e2e/` | 3 spec / 43 项 | `cd client && npx playwright test` |
+| 服务端接口与集成 | `server/test/` | 11 文件 / 277 项 | `cd server && npm test` |
+| 客户端单元 | `client/test/` | 19 文件 / 228 项 | `cd client && npm test` |
+| 浏览器端到端 | `client/e2e/` | 5 spec / 47 项 | `cd client && npx playwright test` |
 
 提交前的门禁：
 

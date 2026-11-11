@@ -2,6 +2,7 @@ import type { Book, Paragraph } from '../models/types'
 import { authStore, type TokenPair } from './authStore'
 import { getDeviceId } from './device'
 import { appVersionHeader } from './appVersion'
+import { isNativeApp } from './platform'
 
 /**
  * 接口客户端。统一走 /api，开发时由 Vite 代理到 http://localhost:3000。
@@ -107,6 +108,19 @@ function notifyUpdateRequired(env: ErrorEnvelope): void {
   window.dispatchEvent(new CustomEvent('zhiyin:update-required', { detail: env }))
 }
 
+/**
+ * 连不上时给用户的话。
+ *
+ * 浏览器里是「自己没起服务端」，说 npm run server 最有用；但装成 APK 之后
+ * 服务端在别人的机器上，用户能做且该做的只有"改服务器地址"这一件事，
+ * 所以原生壳要指向登录页底部的那个入口。服务端下线以后这更是唯一的出路。
+ */
+function offlineHint(): string {
+  return isNativeApp()
+    ? '连不上服务器。请点登录页下方的「服务器地址」填写可用的 API 基址，或稍后再试。'
+    : '无法连接到服务端，请确认服务端已启动（npm run server）。'
+}
+
 export class ApiError extends Error {
   code: string
   status: number
@@ -151,11 +165,7 @@ async function rawRequest<T>(
     if ((e as Error)?.name === 'AbortError') {
       throw new ApiError('TIMEOUT', '请求超时，请检查网络后重试。', 0)
     }
-    throw new ApiError(
-      'NETWORK_ERROR',
-      '无法连接到服务端，请确认服务端已启动（npm run server）。',
-      0,
-    )
+    throw new ApiError('NETWORK_ERROR', offlineHint(), 0)
   } finally {
     clearTimeout(timer)
   }
@@ -267,7 +277,7 @@ async function requestBinary(
     if ((e as Error)?.name === 'AbortError') {
       throw new ApiError('TIMEOUT', '请求超时，请检查网络后重试。', 0)
     }
-    throw new ApiError('NETWORK_ERROR', '无法连接到服务端，请确认服务端已启动。', 0)
+    throw new ApiError('NETWORK_ERROR', offlineHint(), 0)
   } finally {
     clearTimeout(timer)
   }

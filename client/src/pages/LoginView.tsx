@@ -3,6 +3,7 @@ import { useNavigate } from 'react-router-dom'
 import { ApiError } from '../api/client'
 import { useSession } from '../state/session'
 import AppLogo from '../features/brand/AppLogo'
+import ServerSettings from '../features/app/ServerSettings'
 import InkText from '../features/motion/InkText'
 import InkField from '../features/motion/InkField'
 import { hasFinePointer } from '../features/motion/motionEnv'
@@ -27,6 +28,11 @@ export default function LoginView() {
   function friendly(e: unknown): string {
     if (!(e instanceof ApiError)) return '操作失败，请稍后重试。'
     switch (e.code) {
+      /* 连不上是装成客户端之后最常见的问题，也是最容易自己解决的：
+         默认地址写死在安装包里，服务端换了机器就失效 —— 直接告诉用户去哪改 */
+      case 'NETWORK_ERROR':
+      case 'TIMEOUT':
+        return '连不上服务器。若服务端地址已变，请点下方「服务器地址」填写新的 API 基址。'
       case 'ACCOUNT_LOCKED': {
         const until = e.details?.lockedUntil as string | undefined
         if (!until) return '账号已被临时锁定，请稍后再试。'
@@ -192,6 +198,10 @@ export default function LoginView() {
             <br />
             也可以自行注册，账号填手机号或邮箱、密码至少 8 位。
           </p>
+
+          {/* 登录页是「连不上服务器」时唯一还能操作的界面，
+              入口必须在这里，否则用户会卡死：连不上 → 登不了 → 进不去个人主页改地址 */}
+          <ServerSettings />
         </form>
       </div>
     </div>

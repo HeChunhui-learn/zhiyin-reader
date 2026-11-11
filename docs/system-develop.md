@@ -1,6 +1,6 @@
 # 知音漫卷 · 系统开发
 
-> 版本：1.3.0　｜　最后更新：2026-11-03
+> 版本：1.8.0　｜　最后更新：2026-11-10
 >
 > 本文回答「怎么开发、怎么避坑、现在做到哪」。
 > 系统架构、数据模型、接口语义见 [system-design.md](./system-design.md)；
@@ -12,14 +12,22 @@
 
 | 项 | 现状 |
 |---|---|
-| 版本 | 客户端与服务端 `1.3.0`；Android 壳的 `versionCode / versionName` 在 `client/android/app/build.gradle` |
-| 功能 | 导入解析、图文混排、逐句跟读、跨设备同步与冲突、收藏、阅读时长、头像、书签排序与总览、网页 / 原生更新提示、一键同步 |
+| 版本 | 客户端与服务端 `1.8.0`；Android 壳的 `versionCode / versionName` 由 CI 从 git tag 算出（本机默认 10 / 1.9.0） |
+| 功能 | 导入解析、图文混排、逐句跟读、跨设备同步与冲突、收藏、阅读时长、头像、书签排序与总览、网页 / 原生更新提示、一键同步、GitHub Releases 分发与自更新 |
 | 数据库 | 13 张表，权威定义 `server/sql/schema.sql` |
-| 测试 | 服务端 248 项 + 客户端 207 项 + 端到端 43 项 = **498 项** |
+| 测试 | 服务端 277 项 + 客户端 228 项 + 端到端 47 项 = **552 项** |
 | 技术栈 | React 18 + Vite + TypeScript；Fastify 4 + better-sqlite3；SQLite |
 | 运行环境 | Node.js 20+；桌面浏览器窗口 ≥ 1280px |
+| 演示服务器 | **已停用**（原 `123.56.172.230`）；本地或自建服务器运行，见 §2.1 |
 
-1.3.0 新增内容：
+1.9.0 新增内容：
+
+- APK 改由 **GitHub Releases** 分发，推 `v*` tag 自动构建签名包（`.github/workflows/android.yml`）；
+- 服务端 `GET /api/app/version` 改为代查 GitHub Releases API（5 分钟缓存，失败回落环境变量）；
+- 登录页新增「服务器地址」入口，换服务器不必重新打包（`client/src/features/app/ServerSettings.tsx`）；
+- 连不上服务器时，原生壳的提示改为引导用户去改地址，而不是提示起本地服务端。
+
+1.3.0 内容（历史）：
 
 - 服务端 `TTS_PROVIDER=edge` 时可切到微软 Edge 在线语音；
 - 原生壳强制更新闸门（`UpdateGate` + `GET /api/app/version` + 426）；
@@ -94,17 +102,27 @@ TTS：
 
 版本与更新：
 
+版本号的**正常来源是 GitHub Releases**，日常发版不用碰环境变量：
+推一个 `v1.9.0` tag → CI 构建签名 APK 并发布 Release →
+服务端读 Releases API 拿到版本号与下载地址（缓存 5 分钟）。
+下面这些变量只在 GitHub 查不到时兜底，或用来手动干预。
+
 | 变量 | 默认值 | 说明 |
 |---|---|---|
-| `APP_VERSION_CODE` | `3` | 服务端认为的最新 versionCode |
-| `APP_VERSION_NAME` | `1.2.0` | 展示用版本名 |
-| `APP_APK_URL` | `/download/zhiyin-1.2.0.apk` | 下载地址 |
-| `MIN_APP_VERSION_CODE` | 同 `APP_VERSION_CODE` | 低于此值返回 426 |
+| `APP_UPDATE_SOURCE` | 空（走 GitHub） | 设为 `env` 时完全不联网，只用下面的变量 |
+| `APP_RELEASE_REPO` | `HeChunhui-learn/zhiyin-reader` | fork 后填自己的仓库 |
+| `GITHUB_TOKEN` | 空 | 仅私有仓库或想提配额时需要；公开仓库不必配 |
+| `APP_VERSION_CODE` | `9` | 兜底最新 versionCode |
+| `APP_VERSION_NAME` | `1.8.0` | 兜底展示用版本名 |
+| `APP_APK_URL` | `/download/zhiyin-1.8.0.apk` | 兜底下载地址，可用绝对地址 |
+| `MIN_APP_VERSION_CODE` | 跟随最新版 | 低于此值返回 426；**显式设 0 可关掉门槛** |
 | `APP_FORCE_UPDATE` | `true` | 设为 `false` 关闭强制更新 |
 | `APP_UPDATE_NOTES` | 内置文案 | 更新说明 |
 
-> 前端打包时还需注入 `VITE_APP_VERSION_CODE` / `VITE_APP_VERSION_NAME`，并与
-> `client/android/app/build.gradle` 手动保持一致。部署 1.3.0 时不要沿用默认的 1.2.0。
+> 发版流程见 [06-手机端安装与连接指南.md](./06-手机端安装与连接指南.md) 的「发布新版本」一节。
+> `VITE_APP_VERSION_CODE` / `VITE_APP_VERSION_NAME` 由 CI 从 tag 算出并注入，
+> **不要手工赋值** —— 它必须和 APK 里编译进去的 versionCode 完全一致，
+> 差了就会全站 426（见 `client/src/api/appVersion.ts` 的注释）。
 
 ### 2.4 排错
 
@@ -327,6 +345,55 @@ server/
 - `oneClickSync.ts` 只补报 progress / bookmark；readingTime 由 `useReadingTime` 自己补报。
 - 一次点击一个幂等键前缀（`all_<runId>_p_<docId>` / `_b_<docId>`），重试不会重复落库。
 
+### 4.9.1 版本源改成 GitHub Releases（1.9.0）
+
+`server/src/routes/appVersion.ts` 现在是两层结构，读的时候别把两件事混起来：
+
+| 函数 | 在哪用 | 联不联网 |
+|---|---|---|
+| `resolveAppVersion()` | `GET /api/app/version` | 会，查 `api.github.com/repos/<repo>/releases/latest`，5 分钟缓存 |
+| `peekAppVersion()` | `app.ts` 的 426 闸门（`onRequest`，每个请求都走） | **绝不**，只读上面那次查询留下的缓存 |
+
+闸门必须不联网：GitHub 一旦不通，挂在 `onRequest` 上的网络请求会让**所有**接口
+都多等一次超时（`FETCH_TIMEOUT_MS = 4000`），整站变慢。更新检查真正发生在
+`/api/app/version`，闸门只是蹭结果。
+
+几个必须守住的约定：
+
+- `versionCode` 由 CI 写进 Release 正文的 `<!-- zhiyin:versionCode=10900 -->`。
+  tag 只表达 `1.9.0`，Android 的 `versionCode` 是另一个整数，两者换算规则
+  （`主*10000 + 次*100 + 修订`）一旦和 APK 里编译进去的值对不上，
+  手机端会永远认为自己是旧版。
+- `resolveMinVersionCode()` 是全模块**唯一**算门槛的地方。接口与闸门都调它，
+  否则会出现「接口说不用更新、请求却被拦成 426」的自相矛盾。
+- `MIN_APP_VERSION_CODE` **显式设 0 就是关掉闸门**（维护时用）；没配时按默认意图
+  —— 知道最新版号就要求升到最新，不知道（GitHub 不通且没配 `APP_VERSION_CODE`）就放行，
+  宁可少拦，也别把正常用户锁在门外。
+- 注入 `fetchImpl` 时**不读写**模块缓存（`useCache = opts.fetchImpl === undefined`），
+  否则第一个用例塞进缓存的结果会让后面用例莫名其妙地红。
+- `parseRelease()` 拿不到 tag / 版本标记 / APK 附件就返回 `null`，让调用方回落到
+  环境变量 —— 宁可显示旧版本号，也不要显示一个错的。
+
+发版流程见 §6.2 of [07-开发环境与技术原理.md](./07-开发环境与技术原理.md)，
+日常操作（推 tag、配 Secrets、重发某一版）见
+[06-手机端安装与连接指南.md](./06-手机端安装与连接指南.md) §5。
+
+### 4.9.2 服务器地址运行时可改（1.9.0）
+
+APK 里的 API 地址是**编译时**由 `VITE_API_BASE` 打进去的默认值。服务端换机器、
+换端口，或者原演示服务器下线，安装包里的默认值就失效了。所以：
+
+- `client/src/features/app/ServerSettings.tsx` 是登录页与个人主页共用的入口，
+  存 `localStorage` 的 `zhiyin.apiBase`，下次启动生效。
+- **登录页必须有这个入口**：只在个人主页的话，用户会卡死 ——
+  连不上 → 登不了 → 进不去个人主页改地址。
+- CI 构建时**不注入** `VITE_API_BASE`（没有"人人可用"的默认地址），于是
+  `DEFAULT_API_BASE` 是 `/api`；组件用 `needsConfig = isNativeApp() && DEFAULT_API_BASE === '/api'`
+  判断这种情况，直接把面板展开并拦住空输入，不让用户对着「连不上」发呆。
+  想给安装包一个默认地址，就配仓库变量 `ZHIYIN_API_BASE`。
+- 连不上时的文案按环境分流（`client/src/api/client.ts` 的 `offlineHint()`）：
+  浏览器里说 `npm run server`，原生壳里引导去改地址。
+
 ---
 
 ## 4.10 正文与语音缓存（2026-11-10）
@@ -348,11 +415,11 @@ server/
 
 | 层 | 工具 | 位置 | 规模 | 覆盖什么 |
 |---|---|---|---|---|
-| 单元 | Vitest | `client/test/` | 12 文件 / **207 项** | 纯函数：解析、切句、缓存键、窗口几何、构建号、待同步队列与一键同步编排 |
-| 接口与集成 | Vitest + `app.inject()` | `server/test/` | 7 文件 / **248 项** | 真实路由、状态码、错误码、数据库副作用、同步越权与 Edge TTS 适配 |
-| 端到端 | Playwright + 真实 Chrome | `client/e2e/` | 3 spec / **43 项** | 真实浏览器：排版、滚动、点击、多上下文同步、EPUB |
+| 单元 | Vitest | `client/test/` | 19 文件 / **228 项** | 纯函数：解析、切句、缓存键、窗口几何、构建号、API 基址整理、待同步队列与一键同步编排 |
+| 接口与集成 | Vitest + `app.inject()` | `server/test/` | 11 文件 / **277 项** | 真实路由、状态码、错误码、数据库副作用、同步越权、Edge TTS 适配与版本接口 |
+| 端到端 | Playwright + 真实 Chrome | `client/e2e/` | 5 spec / **47 项** | 真实浏览器：排版、滚动、点击、多上下文同步、EPUB |
 
-合计 **498 项**。
+合计 **552 项**。
 
 ### 5.2 分层边界（别越界）
 
@@ -407,6 +474,9 @@ CI（GitHub Actions）三个 job 并行：`static`（两端类型检查 + 前端
 `unit`（两端 Vitest）、`e2e`（Playwright 自带 chromium）。Node 固定 22：
 `better-sqlite3@12.11.1` 的预编译包覆盖 Node 22 / 24 / 25 / 26，不含 20 的 ABI。
 
+另外 `android.yml` 是**发版专用**，不在每次 push 时跑：只有推 `v*` tag
+（或手动触发并指定版本号）才会构建签名 APK 并发布 GitHub Release，见 §7。
+
 ### 5.5 改了什么要跟着改什么
 
 | 改动 | 会红的用例 | 原因 |
@@ -422,6 +492,8 @@ CI（GitHub Actions）三个 job 并行：`static`（两端类型检查 + 前端
 | 界面类名 | `e2e/ui-flows.spec.ts` | 类名是全局契约 |
 | 进度上报触发方式 | `e2e/sync-two-devices.spec.ts` | 只在 `.reader-scroll` 的 scroll 事件里上报 |
 | 构建号注入 / 更新提示 | `web-build.test.ts` | 解析与设备判断是纯函数 |
+| API 基址整理规则 | `api-base.test.ts` | 整理错了表现是"连不上"，不报错 |
+| 版本接口 / 426 闸门 | `app-version.test.ts` | 两边算门槛必须一致，否则自相矛盾 |
 
 ### 5.6 没覆盖的
 
@@ -447,7 +519,7 @@ CI（GitHub Actions）三个 job 并行：`static`（两端类型检查 + 前端
 | 主包体积 | `epubjs` 300KB+ 打进主包，没做代码分割 |
 | 移动端 | 有 Android 壳与更新提示，但完整响应式改版未并入当前主线 |
 | 上传内存 | 500MB 是每请求内存上限；前端全量读文件，数百 MB 的 EPUB 可能打爆内存 |
-| 版本常量 | `package.json` 1.3.0、Android `versionName` 1.5.0、服务端默认 1.2.0 三处不一致，部署时必须用环境变量对齐 |
+| 版本常量 | `package.json` 1.8.0、Android 壳由 CI 从 tag 算（本机默认 10 / 1.9.0）、服务端默认 9 / 1.8.0；只有发版 tag 是权威值 |
 
 ---
 
@@ -473,6 +545,18 @@ CI（GitHub Actions）三个 job 并行：`static`（两端类型检查 + 前端
 |---|---|---|
 | 裁决请求体 `relatedId` | 额外必填字段 | `keep_both` 后要二选一，必须知道另一条记录 |
 | 书签 `sortOrder` / `chapterTitle` | 可选字段 | 老调用方不传时服务端补默认值 |
+
+### 1.9.0（GitHub 分发与自更新）
+
+| 变更 | 位置 |
+|---|---|
+| 发版工作流：推 `v*` tag 构建签名 APK 并发 Release | `.github/workflows/android.yml` |
+| 版本源改查 GitHub Releases（5 分钟缓存，失败回落环境变量） | `server/src/routes/appVersion.ts` |
+| 426 闸门改用 `peekAppVersion()`（不联网） | `server/src/app.ts` |
+| 签名支持环境变量注入，版本号可由 CI 传入 | `client/android/app/build.gradle` |
+| 服务器地址入口抽成共用组件，登录页也能改 | `client/src/features/app/ServerSettings.tsx`、`LoginView.tsx`、`ProfileView.tsx` |
+| 连不上时按环境给不同提示 | `client/src/api/client.ts` 的 `offlineHint()` |
+| 原演示服务器停用，文档全面改写 | `docs/06`、`docs/07`、`docs/system-design.md`、`README.md` |
 | `POST /api/sync` 的 `includeChanges` | 可选开关，缺省 true | 一键同步不需要服务端增量，关掉可省全量扫描 |
 | `applied.bookmarks.skipped` | 响应里新增数组 | 文档已删 / 越权 / 缺 docId 的条目被跳过，客户端据此清队列 |
 | 导入段落 `type` | 契约示例里没有 `type` | 标题 / 图片段需要类型 |
